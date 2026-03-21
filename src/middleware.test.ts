@@ -9,10 +9,14 @@ import {
 import type { SchemaIndex } from "./schema-index";
 import { BUILTIN_NAMES } from "./schema-index";
 
-// Mock the load-parser module
-vi.mock("./load-parser", () => ({
-  parseLoadStatements: vi.fn(),
-}));
+// Mock the load-parser module — keep ociRefToCacheKey real, only mock parseLoadStatements
+vi.mock("./load-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./load-parser")>();
+  return {
+    ...actual,
+    parseLoadStatements: vi.fn(),
+  };
+});
 
 import { parseLoadStatements } from "./load-parser";
 const mockedParseLoadStatements = vi.mocked(parseLoadStatements);
@@ -131,6 +135,29 @@ describe("getAllowedSymbols", () => {
     expect(allowed.has("Deployment")).toBe(true);
     expect(allowed.has("StatefulSet")).toBe(true);
     expect(allowed.has("ReplicaSet")).toBe(true);
+  });
+
+  it("resolves star import with full registry path to correct cache key", () => {
+    mockedParseLoadStatements.mockReturnValue([
+      {
+        ociRef: "ghcr.io/wompipomp/schemas-k8s:v1.35",
+        tarEntryPath: "apps/v1.star",
+        symbols: ["*"],
+        fullPath: "ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star",
+      },
+    ]);
+    const index = createMockSchemaIndex({
+      "schemas-k8s/v1.35/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+    });
+
+    const allowed = getAllowedSymbols(
+      "test://file.star",
+      'load("ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star", "*")\n',
+      index,
+    );
+
+    expect(allowed.has("Deployment")).toBe(true);
+    expect(allowed.has("StatefulSet")).toBe(true);
   });
 
   it("caches result per document URI (not re-parsed on every request)", () => {

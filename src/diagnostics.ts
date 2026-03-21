@@ -7,7 +7,7 @@
  */
 
 import * as vscode from "vscode";
-import { parseLoadStatements } from "./load-parser";
+import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { BUILTIN_NAMES, SchemaIndex } from "./schema-index";
 
 /** Diagnostic source identifier for this provider. */
@@ -44,7 +44,7 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
     for (const stmt of loadStatements) {
       if (stmt.symbols.includes("*")) {
         // Star import: expand to all symbols from the referenced file
-        const fullCachePath = stmt.ociRef.replace(":", "/") + "/" + stmt.tarEntryPath;
+        const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
         const fileSymbols = this.schemaIndex.getSymbolsForFile(fullCachePath);
         for (const sym of fileSymbols) {
           importedSymbols.add(sym);

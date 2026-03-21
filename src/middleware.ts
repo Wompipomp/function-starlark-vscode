@@ -5,7 +5,7 @@
  * via load() statements in the current file.
  */
 
-import { parseLoadStatements } from "./load-parser";
+import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { BUILTIN_NAMES, SchemaIndex } from "./schema-index";
 
 /** Cache of allowed symbols per document URI. */
@@ -37,7 +37,7 @@ export function getAllowedSymbols(
   for (const stmt of loadStatements) {
     if (stmt.symbols.includes("*")) {
       // Star import: add all symbols from the referenced file
-      const fullCachePath = stmt.ociRef.replace(":", "/") + "/" + stmt.tarEntryPath;
+      const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
       const fileSymbols = schemaIndex.getSymbolsForFile(fullCachePath);
       for (const sym of fileSymbols) {
         allowed.add(sym);
