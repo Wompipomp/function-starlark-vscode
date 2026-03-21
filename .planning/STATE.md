@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
-status: completed
-stopped_at: Phase 5 context gathered
-last_updated: "2026-03-21T18:04:07.686Z"
-last_activity: 2026-03-21 -- Completed 04-02 schema cache integration
+status: in-progress
+stopped_at: Completed 05-01 load parser and Docker auth
+last_updated: "2026-03-21T19:15:31Z"
+last_activity: 2026-03-21 -- Completed 05-01 load parser and Docker auth
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_plans: 11
+  completed_plans: 8
+  percent: 73
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Install the extension, open a .star file, get autocomplete and hover docs for all function-starlark builtins immediately.
-**Current focus:** Phase 4: Schema IntelliSense
+**Current focus:** Phase 5: OCI Auto-Download & Load Scoping
 
 ## Current Position
 
-Phase: 4 of 4 (Schema IntelliSense) -- COMPLETE
-Plan: 2 of 2 in current phase (Plan 02 complete)
-Status: Phase 04 Complete -- All plans executed
-Last activity: 2026-03-21 -- Completed 04-02 schema cache integration
+Phase: 5 of 5 (OCI Auto-Download & Load Scoping)
+Plan: 1 of 4 in current phase (Plan 01 complete)
+Status: Phase 05 In Progress -- Plan 01 complete
+Last activity: 2026-03-21 -- Completed 05-01 load parser and Docker auth
 
-Progress: [██████████] 100%
+Progress: [███████---] 73%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 5min | 2 tasks | 3 files |
 | Phase 04 P01 | 2min | 2 tasks | 3 files |
 | Phase 04 P02 | 7min | 2 tasks | 3 files |
+| Phase 05 P01 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 04]: schemas.path uses empty string default -- empty means use globalStoragePath
 - [Phase 04]: Removed vi.mock("vscode") from schema tests -- vitest alias provides mock, vi.mock was overriding implementations
 - [Phase 04]: Used function constructor pattern for LanguageClient mock to support new keyword
+- [Phase 05]: Regex created inside parseLoadStatements function to avoid shared global state
+- [Phase 05]: OCI path detection uses dot-in-name heuristic for full URI vs short path distinction
+- [Phase 05]: Credential helper resolution: credHelpers > credsStore > static auths > anonymous
 
 ### Roadmap Evolution
 
@@ -95,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T18:04:07.684Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-oci-auto-download-and-per-file-load-scoping-for-schema-intellisense/05-CONTEXT.md
+Last session: 2026-03-21T19:15:31Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: .planning/phases/05-oci-auto-download-and-per-file-load-scoping-for-schema-intellisense/05-01-SUMMARY.md
