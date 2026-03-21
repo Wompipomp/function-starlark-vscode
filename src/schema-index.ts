@@ -72,6 +72,7 @@ export function extractTopLevelDefs(content: string): Set<string> {
  */
 export class SchemaIndex {
   private index = new Map<string, Set<string>>();
+  private reverseIndex = new Map<string, string>();
 
   /**
    * Scan a cache directory recursively and index all .star files.
@@ -81,6 +82,7 @@ export class SchemaIndex {
    */
   buildFromCache(cacheDir: string): void {
     this.index.clear();
+    this.reverseIndex.clear();
     this.walkDir(cacheDir, cacheDir);
   }
 
@@ -100,6 +102,16 @@ export class SchemaIndex {
    */
   getSymbolsForFile(tarEntryPath: string): ReadonlySet<string> {
     return this.index.get(tarEntryPath) ?? new Set();
+  }
+
+  /**
+   * Get the .star file path that exports a given symbol.
+   *
+   * @param symbol - Symbol name to look up
+   * @returns Relative file path from cache root, or undefined if not found
+   */
+  getFileForSymbol(symbol: string): string | undefined {
+    return this.reverseIndex.get(symbol);
   }
 
   /**
@@ -128,6 +140,9 @@ export class SchemaIndex {
         const symbols = extractTopLevelDefs(content);
         if (symbols.size > 0) {
           this.index.set(relativePath, symbols);
+          for (const sym of symbols) {
+            this.reverseIndex.set(sym, relativePath);
+          }
         }
       }
     }
