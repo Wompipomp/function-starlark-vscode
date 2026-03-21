@@ -3,10 +3,14 @@ import * as vscode from "vscode";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import type { SchemaIndex } from "./schema-index";
 
-// Mock the load-parser module
-vi.mock("./load-parser", () => ({
-  parseLoadStatements: vi.fn(),
-}));
+// Mock the load-parser module — keep ociRefToCacheKey real, only mock parseLoadStatements
+vi.mock("./load-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./load-parser")>();
+  return {
+    ...actual,
+    parseLoadStatements: vi.fn(),
+  };
+});
 
 import { parseLoadStatements } from "./load-parser";
 const mockedParseLoadStatements = vi.mocked(parseLoadStatements);
@@ -194,6 +198,31 @@ describe("MissingImportDiagnosticProvider", () => {
       const doc = createMockDocument(
         "test://file.star",
         'load("schemas-k8s:v1.31/apps/v1.star", "*")\nres = Deployment("x")\nb = StatefulSet("y")\n',
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
+    it("does not flag star-imported symbols when using full registry path", () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "ghcr.io/wompipomp/schemas-k8s:v1.35",
+          tarEntryPath: "apps/v1.star",
+          symbols: ["*"],
+          fullPath: "ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.35/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        'load("ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star", "*")\nres = Deployment("x")\n',
       );
       provider.updateDiagnostics(doc);
 

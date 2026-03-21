@@ -4,6 +4,7 @@ import {
   isOciLoadPath,
   splitOciPath,
   resolveOciRef,
+  ociRefToCacheKey,
 } from "./load-parser";
 
 describe("isOciLoadPath", () => {
@@ -78,6 +79,20 @@ describe("resolveOciRef", () => {
       repository: "myorg/sub/schemas-k8s",
       tag: "v1.31",
     });
+  });
+});
+
+describe("ociRefToCacheKey", () => {
+  it("returns artifactName/tag for short ref", () => {
+    expect(ociRefToCacheKey("schemas-k8s:v1.31")).toBe("schemas-k8s/v1.31");
+  });
+
+  it("strips registry prefix for full URI", () => {
+    expect(ociRefToCacheKey("ghcr.io/wompipomp/schemas-k8s:v1.35")).toBe("schemas-k8s/v1.35");
+  });
+
+  it("strips nested registry path for full URI", () => {
+    expect(ociRefToCacheKey("ghcr.io/org/sub/schemas:v2.0")).toBe("schemas/v2.0");
   });
 });
 

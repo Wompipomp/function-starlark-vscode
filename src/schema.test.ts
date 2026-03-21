@@ -5,6 +5,9 @@ vi.mock("child_process");
 vi.mock("os", () => ({ platform: () => "darwin" }));
 
 // Mock Phase 5 modules to avoid side effects in integration tests
+vi.mock("./schema-stubs", () => ({
+  generateStubFile: vi.fn().mockReturnValue(undefined),
+}));
 vi.mock("./load-parser", () => ({
   parseLoadStatements: vi.fn().mockReturnValue([]),
 }));
@@ -157,9 +160,14 @@ describe("startLsp schema integration", () => {
     );
   });
 
-  it("constructs args with two --builtin-paths: builtins.py and schema cache dir", async () => {
+  it("constructs args with --builtin-paths for builtins.py; adds _schemas.py when it exists", async () => {
     stubBinaryFound();
     (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
+    // Simulate _schemas.py existing in cache
+    (fs.existsSync as Mock).mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("_schemas.py")) return true;
+      return true; // binary exists
+    });
 
     await activate(makeMockContext());
 
@@ -176,7 +184,7 @@ describe("startLsp schema integration", () => {
 
     expect(builtinPathValues).toHaveLength(2);
     expect(builtinPathValues[0]).toContain("builtins.py");
-    expect(builtinPathValues[1]).toBe("/mock/global/storage");
+    expect(builtinPathValues[1]).toContain("_schemas.py");
   });
 });
 
@@ -214,7 +222,7 @@ describe("setupSchemaWatcher", () => {
       .calls[0][0];
     expect(pattern).toBeInstanceOf(vscode.RelativePattern);
     expect(pattern.base).toEqual({ fsPath: "/mock/schemas", toString: expect.any(Function) });
-    expect(pattern.pattern).toBe("**/*.{py,star}");
+    expect(pattern.pattern).toBe("_schemas.py");
   });
 
   it("registers onDidCreate, onDidChange, and onDidDelete handlers", () => {

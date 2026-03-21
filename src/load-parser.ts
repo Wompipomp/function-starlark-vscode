@@ -112,6 +112,28 @@ export function resolveOciRef(
 }
 
 /**
+ * Convert an OCI reference to its cache-relative key prefix.
+ *
+ * The downloader stores artifacts at `{cacheDir}/{artifactName}/{tag}/`,
+ * where `artifactName` is the last segment of the resolved repository.
+ * This function produces the same `{artifactName}/{tag}` prefix so that
+ * middleware and diagnostics can look up SchemaIndex keys correctly
+ * regardless of whether the user wrote a short (`schemas-k8s:v1.31`)
+ * or full (`ghcr.io/org/schemas-k8s:v1.31`) OCI reference.
+ */
+export function ociRefToCacheKey(ociRef: string): string {
+  const colonIdx = ociRef.indexOf(":");
+  const name = ociRef.substring(0, colonIdx);
+  const tag = ociRef.substring(colonIdx + 1);
+
+  // Extract just the last path segment (artifact name)
+  const slashIdx = name.lastIndexOf("/");
+  const artifactName = slashIdx >= 0 ? name.substring(slashIdx + 1) : name;
+
+  return `${artifactName}/${tag}`;
+}
+
+/**
  * Parse all load() statements from .star file text and return those
  * that reference OCI artifacts.
  *

@@ -95,7 +95,7 @@
         },
         "functionStarlark.schemas.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable schema IntelliSense with OCI auto-download and per-file load() scoping"
         }
       }

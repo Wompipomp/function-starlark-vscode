@@ -19,6 +19,7 @@ import { OciDownloader } from "./oci/downloader";
 import { SchemaIndex } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
+import { generateStubFile } from "./schema-stubs";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -43,9 +44,11 @@ export function setupSchemaWatcher(
   context: vscode.ExtensionContext,
 ): vscode.FileSystemWatcher {
   const schemaDir = getSchemaCachePath(context);
+  // Only watch _schemas.py — the single stub file starlark-lsp reads.
+  // Watching *.star would trigger restarts for every OCI-extracted file.
   const pattern = new vscode.RelativePattern(
     vscode.Uri.file(schemaDir),
-    "**/*.{py,star}",
+    "_schemas.py",
   );
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
@@ -220,9 +223,18 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   const schemaDir = getSchemaCachePath(context);
   fs.mkdirSync(schemaDir, { recursive: true });
 
+  // Always include schema stub file in args — it may be empty initially
+  // but will be populated after OCI download, and client.restart() reuses
+  // the same args so the file must be present from the start.
+  const schemaStubPath = path.join(schemaDir, "_schemas.py");
+  if (!fs.existsSync(schemaStubPath)) {
+    fs.writeFileSync(schemaStubPath, "# auto-generated schema stubs\n", "utf-8");
+  }
+  const args = ["start", "--builtin-paths", builtinsPath, "--builtin-paths", schemaStubPath];
+
   const serverOptions: ServerOptions = {
     command: lspPath,
-    args: ["start", "--builtin-paths", builtinsPath, "--builtin-paths", schemaDir],
+    args,
   };
 
   // Build middleware: always include provideDocumentSymbols fix,
@@ -261,6 +273,13 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
         return toVscodeSymbols(result);
       },
       ...(scopingMiddleware as unknown as Partial<Middleware>),
+      handleDiagnostics: (uri, diagnostics, next) => {
+        // Filter out starlark-lsp "no such file or directory" errors for OCI load paths
+        const filtered = diagnostics.filter(
+          (d) => !d.message.includes("no such file or directory"),
+        );
+        next(uri, filtered);
+      },
     },
   };
 
@@ -400,12 +419,14 @@ export async function activate(
 
   // Initialize schema modules when enabled
   const config = vscode.workspace.getConfiguration("functionStarlark");
-  if (config.get<boolean>("schemas.enabled", false)) {
+  if (config.get<boolean>("schemas.enabled", true)) {
     const cacheDir = getSchemaCachePath(context);
     const registry = config.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
     schemaIndex = new SchemaIndex();
     schemaIndex.buildFromCache(cacheDir);
     downloader = new OciDownloader(cacheDir, registry, outputChannel);
+    // Ensure stub file exists for any previously cached schemas
+    generateStubFile(cacheDir);
   }
 
   await startLsp(context);
@@ -424,8 +445,13 @@ export async function activate(
           statusBarItem.text = `$(sync~spin) Starlark: pulling ${load.ociRef}...`;
         }
         downloader.ensureArtifact(load.ociRef).then(() => {
-          schemaIndex!.rebuild(getSchemaCachePath(context));
+          const cacheDir = getSchemaCachePath(context);
+          schemaIndex!.rebuild(cacheDir);
+          // Generate stub file — FileSystemWatcher will detect the new
+          // .star/.py files and trigger a debounced LSP restart automatically
+          generateStubFile(cacheDir);
           updateDocumentImports(document.uri.toString(), text, schemaIndex!);
+          diagnosticProvider?.updateDiagnostics(document);
           if (statusBarItem) {
             statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
           }
