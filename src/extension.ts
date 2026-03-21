@@ -127,11 +127,11 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
     );
   }
 
-  const builtinsDir = path.join(context.extensionPath, "starlark");
+  const builtinsPath = path.join(context.extensionPath, "starlark", "builtins.py");
 
   const serverOptions: ServerOptions = {
     command: lspPath,
-    args: ["start", "--builtin-paths", builtinsDir],
+    args: ["start", "--builtin-paths", builtinsPath],
   };
 
   const clientOptions: LanguageClientOptions = {
