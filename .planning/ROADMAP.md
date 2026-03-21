@@ -122,13 +122,14 @@ Plans:
   6. "Clear Schema Cache" command provides escape hatch for corrupted cache
   7. Extension degrades gracefully when schemas.enabled is false or downloads fail
 
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Load statement parser with OCI path validation/resolution, Docker credential helper integration
-- [ ] 05-02-PLAN.md -- OCI Distribution API client with token auth, download orchestrator with cache/extraction/dedup
-- [ ] 05-03-PLAN.md -- Schema symbol index from cached files, LanguageClient middleware for per-file completion/hover/signatureHelp filtering
-- [ ] 05-04-PLAN.md -- Missing-import diagnostics with quick-fix, extension wiring, package.json settings/commands
+- [x] 05-01-PLAN.md -- Load statement parser with OCI path validation/resolution, Docker credential helper integration
+- [x] 05-02-PLAN.md -- OCI Distribution API client with token auth, download orchestrator with cache/extraction/dedup
+- [x] 05-03-PLAN.md -- Schema symbol index from cached files, LanguageClient middleware for per-file completion/hover/signatureHelp filtering
+- [x] 05-04-PLAN.md -- Missing-import diagnostics with quick-fix, extension wiring, package.json settings/commands
+- [ ] 05-05-PLAN.md -- Gap closure: fix star import path key mismatch in middleware and diagnostics
 
 **Research flags:**
 - OCI Distribution Spec: Two HTTP calls (manifest + blob) with Bearer token auth challenge-response
@@ -150,4 +151,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. LSP Core | 2/2 | Complete   | 2026-03-21 |
 | 3. Buildifier | 1/1 | Complete | 2026-03-21 |
 | 4. Schema IntelliSense | 0/2 | Not started | - |
-| 5. OCI Auto-Download & Load Scoping | 0/4 | Not started | - |
+| 5. OCI Auto-Download & Load Scoping | 4/5 | In Progress | - |
