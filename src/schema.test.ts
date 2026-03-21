@@ -4,6 +4,49 @@ vi.mock("fs");
 vi.mock("child_process");
 vi.mock("os", () => ({ platform: () => "darwin" }));
 
+// Mock Phase 5 modules to avoid side effects in integration tests
+vi.mock("./load-parser", () => ({
+  parseLoadStatements: vi.fn().mockReturnValue([]),
+}));
+vi.mock("./oci/downloader", () => {
+  const MockOciDownloader = vi.fn().mockImplementation(
+    function (this: Record<string, unknown>) {
+      this.ensureArtifact = vi.fn().mockResolvedValue("/cache/artifact");
+    },
+  );
+  return { OciDownloader: MockOciDownloader };
+});
+vi.mock("./schema-index", () => {
+  const MockSchemaIndex = vi.fn().mockImplementation(
+    function (this: Record<string, unknown>) {
+      this.buildFromCache = vi.fn();
+      this.rebuild = vi.fn();
+      this.getAllSymbols = vi.fn().mockReturnValue(new Set());
+      this.getSymbolsForFile = vi.fn().mockReturnValue(new Set());
+      this.getFileForSymbol = vi.fn();
+    },
+  );
+  return {
+    SchemaIndex: MockSchemaIndex,
+    BUILTIN_NAMES: new Set(["Resource"]),
+  };
+});
+vi.mock("./middleware", () => ({
+  createScopingMiddleware: vi.fn().mockReturnValue({}),
+  updateDocumentImports: vi.fn(),
+  clearDocumentImports: vi.fn(),
+}));
+vi.mock("./diagnostics", () => {
+  const MockProvider = vi.fn().mockImplementation(
+    function (this: Record<string, unknown>) {
+      this.updateDiagnostics = vi.fn();
+      this.provideCodeActions = vi.fn().mockReturnValue([]);
+      this.dispose = vi.fn();
+    },
+  );
+  return { MissingImportDiagnosticProvider: MockProvider };
+});
+
 let capturedServerOptions: { args: string[] } | undefined;
 
 vi.mock("vscode-languageclient/node", () => {
@@ -29,6 +72,8 @@ import * as fs from "fs";
 import { execFileSync } from "child_process";
 import { LanguageClient } from "vscode-languageclient/node";
 import { getSchemaCachePath, setupSchemaWatcher, activate } from "./extension";
+import { SchemaIndex } from "./schema-index";
+import { OciDownloader } from "./oci/downloader";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
@@ -160,7 +205,7 @@ describe("setupSchemaWatcher", () => {
     (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
   });
 
-  it("creates watcher with RelativePattern using Uri.file and **/*.py", () => {
+  it("creates watcher with RelativePattern using Uri.file and **/*.{py,star}", () => {
     const ctx = makeMockContext("/mock/schemas");
     setupSchemaWatcher(ctx);
 
@@ -169,7 +214,7 @@ describe("setupSchemaWatcher", () => {
       .calls[0][0];
     expect(pattern).toBeInstanceOf(vscode.RelativePattern);
     expect(pattern.base).toEqual({ fsPath: "/mock/schemas", toString: expect.any(Function) });
-    expect(pattern.pattern).toBe("**/*.py");
+    expect(pattern.pattern).toBe("**/*.{py,star}");
   });
 
   it("registers onDidCreate, onDidChange, and onDidDelete handlers", () => {
@@ -339,5 +384,105 @@ describe("schemas.path config change handling", () => {
 
     // Client should have been restarted (not stopped)
     expect(clientInstance.restart).toHaveBeenCalled();
+  });
+
+  it("schemas.registry config change recreates downloader", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    // Update config to new registry
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/other" }),
+    );
+
+    // Simulate schemas.registry config change
+    await configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.registry",
+    });
+
+    // Should not restart the client (registry change doesn't require restart)
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+    expect(clientInstance.restart).not.toHaveBeenCalled();
+  });
+});
+
+describe("Phase 5 integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+  });
+
+  it("registers clearSchemaCache command", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
+
+    await activate(makeMockContext());
+
+    expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
+      "functionStarlark.clearSchemaCache",
+      expect.any(Function),
+    );
+  });
+
+  it("schemas.enabled=false skips schema module initialization", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await activate(makeMockContext());
+
+    // SchemaIndex and OciDownloader should not be constructed when schemas disabled
+    expect(SchemaIndex as unknown as Mock).not.toHaveBeenCalled();
+    expect(OciDownloader as unknown as Mock).not.toHaveBeenCalled();
+  });
+
+  it("schemas.enabled=true registers document open/save/close handlers", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    expect(vscode.workspace.onDidOpenTextDocument).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
+    expect(vscode.workspace.onDidSaveTextDocument).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
+    expect(vscode.workspace.onDidCloseTextDocument).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
+  });
+
+  it("schemas.enabled=true creates diagnostic collection and registers code action provider", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    expect(vscode.languages.createDiagnosticCollection).toHaveBeenCalledWith(
+      "functionStarlark",
+    );
+    expect(vscode.languages.registerCodeActionsProvider).toHaveBeenCalledWith(
+      { scheme: "file", language: "starlark" },
+      expect.any(Object),
+      { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+    );
   });
 });
