@@ -182,9 +182,10 @@ describe("startLsp schema integration", () => {
       }
     }
 
-    expect(builtinPathValues).toHaveLength(2);
+    expect(builtinPathValues).toHaveLength(3);
     expect(builtinPathValues[0]).toContain("builtins.py");
     expect(builtinPathValues[1]).toContain("_schemas.py");
+    expect(builtinPathValues[2]).toBe("/mock/global/storage"); // schemaDir for namespace modules
   });
 });
 

@@ -8,50 +8,80 @@
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { BUILTIN_NAMES, SchemaIndex } from "./schema-index";
 
-/** Cache of allowed symbols per document URI. */
-const documentImportsCache = new Map<string, Set<string>>();
+/** Cached import data per document URI. */
+interface DocumentImports {
+  /** Flat allowed symbols (builtins + direct imports + star imports) */
+  allowed: Set<string>;
+  /** Namespace → set of symbols accessible via ns.Symbol */
+  namespaces: Map<string, Set<string>>;
+}
+
+const documentImportsCache = new Map<string, DocumentImports>();
 
 /**
- * Compute the set of symbols allowed in the given document.
+ * Compute the allowed symbols and namespace bindings for a document.
  *
- * Always includes BUILTIN_NAMES. Adds named imports from load() statements
- * that reference OCI artifacts. Star imports ("*") expand to all symbols
- * from the referenced .star file.
- *
- * Results are cached per document URI. Use updateDocumentImports() to
- * refresh the cache after edits.
+ * Always includes BUILTIN_NAMES in flat symbols. Adds named imports from
+ * load() statements. Star imports ("*") expand to all symbols from the
+ * referenced file. Namespace imports (k8s="*") create namespace bindings.
  */
-export function getAllowedSymbols(
+export function getDocumentImports(
   documentUri: string,
   documentText: string,
   schemaIndex: SchemaIndex,
-): Set<string> {
+): DocumentImports {
   const cached = documentImportsCache.get(documentUri);
   if (cached) {
     return cached;
   }
 
   const allowed = new Set<string>(BUILTIN_NAMES);
+  const namespaces = new Map<string, Set<string>>();
   const loadStatements = parseLoadStatements(documentText);
 
   for (const stmt of loadStatements) {
+    const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
+
+    // Handle direct symbol imports
     if (stmt.symbols.includes("*")) {
-      // Star import: add all symbols from the referenced file
-      const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
       const fileSymbols = schemaIndex.getSymbolsForFile(fullCachePath);
       for (const sym of fileSymbols) {
         allowed.add(sym);
       }
     } else {
-      // Named imports: add each symbol
       for (const sym of stmt.symbols) {
         allowed.add(sym);
       }
     }
+
+    // Handle namespace imports: k8s="*"
+    for (const ns of stmt.namespaces) {
+      if (ns.value === "*") {
+        const fileSymbols = schemaIndex.getSymbolsForFile(fullCachePath);
+        // Allow the namespace variable name itself
+        allowed.add(ns.name);
+        // Track which symbols are in this namespace
+        const existing = namespaces.get(ns.name) ?? new Set<string>();
+        for (const sym of fileSymbols) {
+          existing.add(sym);
+        }
+        namespaces.set(ns.name, existing);
+      }
+    }
   }
 
-  documentImportsCache.set(documentUri, allowed);
-  return allowed;
+  const result = { allowed, namespaces };
+  documentImportsCache.set(documentUri, result);
+  return result;
+}
+
+/** Backward-compatible wrapper — returns just the flat allowed set. */
+export function getAllowedSymbols(
+  documentUri: string,
+  documentText: string,
+  schemaIndex: SchemaIndex,
+): Set<string> {
+  return getDocumentImports(documentUri, documentText, schemaIndex).allowed;
 }
 
 /**
@@ -107,16 +137,28 @@ export function createScopingMiddleware(
 
       const uri = document.uri.toString();
       const text = getDocumentText(uri) ?? document.getText();
-      const allowed = getAllowedSymbols(uri, text, schemaIndex);
+      const imports = getDocumentImports(uri, text, schemaIndex);
 
       const isArray = Array.isArray(result);
       const items = isArray
         ? (result as Array<{ label: string | { label: string } }>)
         : (result as { items: Array<{ label: string | { label: string } }> }).items;
 
-      const filtered = items.filter((item) =>
-        allowed.has(getCompletionLabel(item.label)),
-      );
+      const filtered = items.filter((item) => {
+        const label = getCompletionLabel(item.label);
+        // Allow flat symbols (builtins + direct imports)
+        if (imports.allowed.has(label)) return true;
+        // Allow namespace-qualified symbols (k8s.Deployment)
+        // starlark-lsp provides these as "ns.Symbol" for module builtins
+        const dotIdx = label.indexOf(".");
+        if (dotIdx > 0) {
+          const ns = label.substring(0, dotIdx);
+          const sym = label.substring(dotIdx + 1);
+          const nsSymbols = imports.namespaces.get(ns);
+          if (nsSymbols?.has(sym)) return true;
+        }
+        return false;
+      });
 
       return isArray
         ? filtered
@@ -146,9 +188,12 @@ export function createScopingMiddleware(
       const word = document.getText(wordRange);
       const uri = document.uri.toString();
       const text = getDocumentText(uri) ?? document.getText();
-      const allowed = getAllowedSymbols(uri, text, schemaIndex);
+      const imports = getDocumentImports(uri, text, schemaIndex);
 
-      return allowed.has(word) ? hover : undefined;
+      if (imports.allowed.has(word)) return hover;
+      // Check namespace membership for hover on namespace variable
+      if (imports.namespaces.has(word)) return hover;
+      return undefined;
     },
 
     provideSignatureHelp: async (

@@ -90,6 +90,7 @@ describe("getAllowedSymbols", () => {
         tarEntryPath: "apps/v1.star",
         symbols: ["Deployment", "StatefulSet"],
         fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        namespaces: [],
       },
     ]);
     const index = createMockSchemaIndex({
@@ -120,6 +121,7 @@ describe("getAllowedSymbols", () => {
         tarEntryPath: "apps/v1.star",
         symbols: ["*"],
         fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        namespaces: [],
       },
     ]);
     const index = createMockSchemaIndex({
@@ -144,6 +146,7 @@ describe("getAllowedSymbols", () => {
         tarEntryPath: "apps/v1.star",
         symbols: ["*"],
         fullPath: "ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star",
+        namespaces: [],
       },
     ]);
     const index = createMockSchemaIndex({
@@ -158,6 +161,32 @@ describe("getAllowedSymbols", () => {
 
     expect(allowed.has("Deployment")).toBe(true);
     expect(allowed.has("StatefulSet")).toBe(true);
+  });
+
+  it("with namespace import k8s=\"*\" allows the namespace variable name", () => {
+    mockedParseLoadStatements.mockReturnValue([
+      {
+        ociRef: "schemas-k8s:v1.31",
+        tarEntryPath: "apps/v1.star",
+        symbols: [],
+        namespaces: [{ name: "k8s", value: "*" }],
+        fullPath: "schemas-k8s:v1.31/apps/v1.star",
+      },
+    ]);
+    const index = createMockSchemaIndex({
+      "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+    });
+
+    const allowed = getAllowedSymbols(
+      "test://file.star",
+      'load("schemas-k8s:v1.31/apps/v1.star", k8s="*")\n',
+      index,
+    );
+
+    // Namespace variable should be allowed
+    expect(allowed.has("k8s")).toBe(true);
+    // Bare symbols should NOT be allowed (only via k8s.Deployment)
+    expect(allowed.has("Deployment")).toBe(false);
   });
 
   it("caches result per document URI (not re-parsed on every request)", () => {
@@ -192,6 +221,7 @@ describe("updateDocumentImports", () => {
         tarEntryPath: "apps/v1.star",
         symbols: ["Deployment"],
         fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        namespaces: [],
       },
     ]);
     getAllowedSymbols("test://file.star", "initial", index);
@@ -222,6 +252,7 @@ describe("createScopingMiddleware", () => {
           ociRef: "schemas-k8s:v1.31",
           tarEntryPath: "apps/v1.star",
           symbols: ["Deployment"],
+          namespaces: [],
           fullPath: "schemas-k8s:v1.31/apps/v1.star",
         },
       ]);
@@ -347,6 +378,7 @@ describe("createScopingMiddleware", () => {
           ociRef: "schemas-k8s:v1.31",
           tarEntryPath: "apps/v1.star",
           symbols: ["Deployment"],
+          namespaces: [],
           fullPath: "schemas-k8s:v1.31/apps/v1.star",
         },
       ]);
@@ -380,6 +412,7 @@ describe("createScopingMiddleware", () => {
           ociRef: "schemas-k8s:v1.31",
           tarEntryPath: "apps/v1.star",
           symbols: ["Deployment"],
+          namespaces: [],
           fullPath: "schemas-k8s:v1.31/apps/v1.star",
         },
       ]);

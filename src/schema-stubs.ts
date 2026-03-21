@@ -260,3 +260,67 @@ export function generateStubFile(cacheDir: string): string | undefined {
 
   return stubPath;
 }
+
+/**
+ * Write content to a file only if it differs from existing content.
+ * Returns true if the file was written (content changed).
+ */
+function writeIfChanged(filePath: string, content: string): boolean {
+  let existing = "";
+  try { existing = fs.readFileSync(filePath, "utf-8"); } catch { /* doesn't exist */ }
+  if (existing === content) return false;
+  fs.writeFileSync(filePath, content, "utf-8");
+  return true;
+}
+
+/**
+ * Generate namespace module .py files for starlark-lsp.
+ *
+ * When the cache directory is passed as --builtin-paths (directory mode),
+ * starlark-lsp treats each .py file as a module. A file named `k8s.py`
+ * with `def Deployment(...)` provides `k8s.Deployment()` completions.
+ *
+ * This function creates one .py file per namespace, containing stubs
+ * for all symbols accessible through that namespace.
+ *
+ * @param cacheDir - Root cache directory
+ * @param namespaceFiles - Map of namespace name → list of cache-relative .star file paths
+ * @returns true if any files were written (content changed)
+ */
+export function generateNamespaceStubs(
+  cacheDir: string,
+  namespaceFiles: Map<string, string[]>,
+): boolean {
+  let changed = false;
+
+  for (const [nsName, filePaths] of namespaceFiles) {
+    const allSchemas: ParsedSchema[] = [];
+
+    for (const relPath of filePaths) {
+      const fullPath = path.join(cacheDir, relPath);
+      try {
+        const content = fs.readFileSync(fullPath, "utf-8");
+        allSchemas.push(...parseSchemas(content));
+      } catch {
+        // File may not be downloaded yet
+      }
+    }
+
+    if (allSchemas.length === 0) continue;
+
+    // Deduplicate
+    const seen = new Set<string>();
+    const unique = allSchemas.filter((s) => {
+      if (seen.has(s.name)) return false;
+      seen.add(s.name);
+      return true;
+    });
+
+    const stubPath = path.join(cacheDir, `${nsName}.py`);
+    if (writeIfChanged(stubPath, generateStub(unique))) {
+      changed = true;
+    }
+  }
+
+  return changed;
+}

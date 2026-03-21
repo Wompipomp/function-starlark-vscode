@@ -111,6 +111,7 @@ describe("MissingImportDiagnosticProvider", () => {
           tarEntryPath: "apps/v1.star",
           symbols: ["Deployment"],
           fullPath: "schemas-k8s:v1.31/apps/v1.star",
+          namespaces: [],
         },
       ]);
       const index = createMockSchemaIndex({
@@ -187,6 +188,7 @@ describe("MissingImportDiagnosticProvider", () => {
           tarEntryPath: "apps/v1.star",
           symbols: ["*"],
           fullPath: "schemas-k8s:v1.31/apps/v1.star",
+          namespaces: [],
         },
       ]);
       const index = createMockSchemaIndex({
@@ -212,6 +214,7 @@ describe("MissingImportDiagnosticProvider", () => {
           tarEntryPath: "apps/v1.star",
           symbols: ["*"],
           fullPath: "ghcr.io/wompipomp/schemas-k8s:v1.35/apps/v1.star",
+          namespaces: [],
         },
       ]);
       const index = createMockSchemaIndex({
@@ -287,6 +290,7 @@ describe("MissingImportDiagnosticProvider", () => {
           tarEntryPath: "core/v1.star",
           symbols: ["Service"],
           fullPath: "schemas-k8s:v1.31/core/v1.star",
+          namespaces: [],
         },
       ]);
       const index = createMockSchemaIndex({
