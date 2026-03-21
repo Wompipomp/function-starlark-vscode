@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 05-01 load parser and Docker auth
-last_updated: "2026-03-21T19:15:31Z"
-last_activity: 2026-03-21 -- Completed 05-01 load parser and Docker auth
+status: executing
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-03-21T19:23:27.073Z"
+last_activity: 2026-03-21 -- Completed 05-03 schema index and scoping middleware
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 8
-  percent: 73
+  completed_plans: 10
+  percent: 82
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 5 of 5 (OCI Auto-Download & Load Scoping)
-Plan: 1 of 4 in current phase (Plan 01 complete)
-Status: Phase 05 In Progress -- Plan 01 complete
-Last activity: 2026-03-21 -- Completed 05-01 load parser and Docker auth
+Plan: 3 of 4 in current phase (Plan 03 complete)
+Status: Phase 05 In Progress -- Plan 03 complete
+Last activity: 2026-03-21 -- Completed 05-03 schema index and scoping middleware
 
-Progress: [███████---] 73%
+Progress: [████████--] 82%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [███████---] 73%
 | Phase 04 P01 | 2min | 2 tasks | 3 files |
 | Phase 04 P02 | 7min | 2 tasks | 3 files |
 | Phase 05 P01 | 3min | 2 tasks | 4 files |
+| Phase 05 P03 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Regex created inside parseLoadStatements function to avoid shared global state
 - [Phase 05]: OCI path detection uses dot-in-name heuristic for full URI vs short path distinction
 - [Phase 05]: Credential helper resolution: credHelpers > credsStore > static auths > anonymous
+- [Phase 05]: BUILTIN_NAMES is static ReadonlySet of 21 names matching builtins.py
+- [Phase 05]: Middleware caches allowed symbols per document URI to avoid re-parsing load() on every request
+- [Phase 05]: Star import expands via SchemaIndex.getSymbolsForFile() using tarEntryPath as lookup key
 
 ### Roadmap Evolution
 
@@ -99,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:15:31Z
-Stopped at: Completed 05-01-PLAN.md
-Resume file: .planning/phases/05-oci-auto-download-and-per-file-load-scoping-for-schema-intellisense/05-01-SUMMARY.md
+Last session: 2026-03-21T19:22:00Z
+Stopped at: Completed 05-03-PLAN.md
+Resume file: .planning/phases/05-oci-auto-download-and-per-file-load-scoping-for-schema-intellisense/05-03-SUMMARY.md
