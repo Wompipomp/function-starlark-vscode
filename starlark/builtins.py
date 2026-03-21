@@ -1,4 +1,4 @@
-# Targets: function-starlark v1.6.x
+# Targets: function-starlark v1.7+
 """function-starlark builtins.
 
 This file provides autocomplete, hover docs, and signature help
@@ -309,5 +309,53 @@ def require_extra_resources(name, apiVersion, kind, match_labels):
 
     Returns:
         None
+    """
+    pass
+
+# ---------------------------------------------------------------------------
+# Schema definitions
+# ---------------------------------------------------------------------------
+
+def schema(name, doc=None, **fields):
+    """Define a typed schema constructor.
+
+    Creates a callable that validates keyword arguments against field
+    descriptors at construction time and returns a validated dict.
+    The schema callable accepts only keyword arguments matching the
+    defined fields.
+
+    Args:
+        name: Schema name (e.g., "DeploymentSpec"). Used in error messages.
+        doc: Optional documentation string for the schema.
+        **fields: Field definitions as keyword arguments. Each value must be
+            a field() descriptor (e.g., replicas=field(type="int")).
+
+    Returns:
+        A callable schema constructor.
+    """
+    pass
+
+
+def field(type=None, required=False, default=None, enum=None, doc=None, items=None):
+    """Define a field descriptor for use in schema().
+
+    Describes the type, constraints, and documentation for a single
+    field in a schema definition.
+
+    Args:
+        type: Expected value type. Either a primitive type string
+            ("string", "int", "float", "bool", "list", "dict") or a
+            schema reference for nested validation. None means any type.
+        required: Whether this field must be provided. Mutually exclusive
+            with default.
+        default: Default value when field is omitted. Mutually exclusive
+            with required.
+        enum: List of allowed values. Value must be one of these.
+        doc: Documentation string for this field.
+        items: Schema for list element validation. Only valid when
+            type="list". Each list element is validated against this schema.
+
+    Returns:
+        A field descriptor.
     """
     pass
