@@ -77,6 +77,11 @@
           "type": "boolean",
           "default": false,
           "description": "Apply buildifier lint fixes when formatting"
+        },
+        "functionStarlark.schemas.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a local directory containing schema .py files. When empty, uses the extension's global storage directory."
         }
       }
     },
