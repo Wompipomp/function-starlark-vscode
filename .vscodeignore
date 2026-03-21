@@ -1,0 +1,13 @@
+.vscode
+.planning
+node_modules
+src/**
+out/
+*.ts
+!*.d.ts
+tsconfig.json
+esbuild.js
+eslint.config.mjs
+package-lock.json
+**/*.map
+.gitignore

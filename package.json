@@ -1,0 +1,75 @@
+{
+  "name": "vscode-function-starlark",
+  "displayName": "Function Starlark",
+  "description": "Starlark IDE support for function-starlark compositions — autocomplete, hover docs, syntax highlighting",
+  "version": "0.1.0",
+  "publisher": "wompipomp",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "starlark",
+        "aliases": [
+          "Starlark",
+          "starlark"
+        ],
+        "extensions": [
+          ".star"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "starlark",
+        "scopeName": "source.starlark",
+        "path": "./syntaxes/starlark.tmGrammar.json"
+      }
+    ],
+    "configuration": {
+      "title": "Function Starlark",
+      "properties": {
+        "functionStarlark.lsp.path": {
+          "type": "string",
+          "default": "starlark-lsp",
+          "description": "Path to the starlark-lsp binary"
+        },
+        "functionStarlark.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Starlark language server for autocomplete and hover docs"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.25.12",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.57.1"
+  }
+}
