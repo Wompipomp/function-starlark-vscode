@@ -80,7 +80,7 @@ describe("MissingImportDiagnosticProvider", () => {
     it("creates diagnostics for unimported schema symbols used in the document", () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
@@ -110,7 +110,7 @@ describe("MissingImportDiagnosticProvider", () => {
         },
       ]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
@@ -161,7 +161,7 @@ describe("MissingImportDiagnosticProvider", () => {
     it("returns empty diagnostics when no schema symbols are used", () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
@@ -176,10 +176,35 @@ describe("MissingImportDiagnosticProvider", () => {
       expect(diagnostics).toHaveLength(0);
     });
 
+    it("does not flag symbols that are star-imported via load(\"...\", \"*\")", () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "apps/v1.star",
+          symbols: ["*"],
+          fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        'load("schemas-k8s:v1.31/apps/v1.star", "*")\nres = Deployment("x")\nb = StatefulSet("y")\n',
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
     it("detects multiple unimported symbols", () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
@@ -199,7 +224,7 @@ describe("MissingImportDiagnosticProvider", () => {
     it("creates a quick-fix code action to insert load() for missing import", () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
@@ -236,8 +261,8 @@ describe("MissingImportDiagnosticProvider", () => {
         },
       ]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
-        "core/v1.star": new Set(["Service"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/core/v1.star": new Set(["Service"]),
       });
       const diagCollection = createMockDiagnosticCollection();
       const provider = new MissingImportDiagnosticProvider(index, diagCollection);
