@@ -3,7 +3,10 @@ import * as path from "path";
 
 vi.mock("fs");
 vi.mock("nanotar");
-vi.mock("./client");
+vi.mock("./client", () => ({
+  // Use function constructor pattern to support `new OciClient(...)`
+  OciClient: vi.fn(function () { return {}; }),
+}));
 vi.mock("./auth");
 vi.mock("../load-parser");
 
@@ -37,9 +40,9 @@ function setupMocks(opts: { cacheExists?: boolean; tarEntries?: Array<{ name: st
   (getDockerCredentials as unknown as Mock).mockResolvedValue(undefined);
 
   const mockPullArtifact = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
-  (OciClient as unknown as Mock).mockImplementation(() => ({
-    pullArtifact: mockPullArtifact,
-  }));
+  (OciClient as unknown as Mock).mockImplementation(function () {
+    return { pullArtifact: mockPullArtifact };
+  });
 
   (parseTar as unknown as Mock).mockReturnValue(
     opts.tarEntries ?? [
@@ -211,9 +214,9 @@ describe("OciDownloader", () => {
 
       // Make pullArtifact fail
       const mockPullArtifact = vi.fn().mockRejectedValue(new Error("network error"));
-      (OciClient as unknown as Mock).mockImplementation(() => ({
-        pullArtifact: mockPullArtifact,
-      }));
+      (OciClient as unknown as Mock).mockImplementation(function () {
+        return { pullArtifact: mockPullArtifact };
+      });
 
       const downloader = new OciDownloader(cacheDir, defaultRegistry);
 
