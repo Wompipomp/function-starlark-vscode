@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
 status: completed
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-21T16:57:28.495Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-03-21T18:04:07.686Z"
 last_activity: 2026-03-21 -- Completed 04-02 schema cache integration
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 7
   completed_plans: 7
@@ -81,6 +81,10 @@ Recent decisions affecting current work:
 - [Phase 04]: Removed vi.mock("vscode") from schema tests -- vitest alias provides mock, vi.mock was overriding implementations
 - [Phase 04]: Used function constructor pattern for LanguageClient mock to support new keyword
 
+### Roadmap Evolution
+
+- Phase 5 added: OCI auto-download and per-file load() scoping for schema IntelliSense
+
 ### Pending Todos
 
 None yet.
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T16:51:18Z
-Stopped at: Completed 04-02-PLAN.md
-Resume file: .planning/phases/04-schema-intellisense/04-02-SUMMARY.md
+Last session: 2026-03-21T18:04:07.684Z
+Stopped at: Phase 5 context gathered
+Resume file: .planning/phases/05-oci-auto-download-and-per-file-load-scoping-for-schema-intellisense/05-CONTEXT.md
