@@ -105,6 +105,7 @@ describe("parseLoadStatements", () => {
         ociRef: "schemas-k8s:v1.31",
         tarEntryPath: "apps/v1.star",
         symbols: ["Deployment"],
+        namespaces: [],
         fullPath: "schemas-k8s:v1.31/apps/v1.star",
       },
     ]);
@@ -177,5 +178,37 @@ load("relative/path.star", "something")
     const result = parseLoadStatements(text);
     expect(result).toHaveLength(1);
     expect(result[0].symbols).toEqual(["Deployment"]);
+  });
+
+  it("parses namespace import k8s=\"*\"", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", k8s="*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].symbols).toEqual([]);
+    expect(result[0].namespaces).toEqual([{ name: "k8s", value: "*" }]);
+    expect(result[0].ociRef).toBe("schemas-k8s:v1.31");
+  });
+
+  it("parses mixed direct and namespace imports", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", "Deployment", k8s="*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].symbols).toEqual(["Deployment"]);
+    expect(result[0].namespaces).toEqual([{ name: "k8s", value: "*" }]);
+  });
+
+  it("parses multiple namespace imports", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", apps="*", k8s="*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].namespaces).toHaveLength(2);
+    expect(result[0].namespaces[0]).toEqual({ name: "apps", value: "*" });
+    expect(result[0].namespaces[1]).toEqual({ name: "k8s", value: "*" });
+  });
+
+  it("treats load with only namespace import as valid (not skipped)", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", storage="*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
   });
 });

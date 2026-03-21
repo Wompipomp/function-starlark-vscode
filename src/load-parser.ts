@@ -5,6 +5,14 @@
  * enabling both OCI auto-download and per-file completion scoping.
  */
 
+/** A namespace import binding from a load() statement. */
+export interface NamespaceImport {
+  /** Namespace variable name (e.g., "k8s" from k8s="*") */
+  name: string;
+  /** The value — currently always "*" for star imports */
+  value: string;
+}
+
 /** A parsed load() statement referencing an OCI artifact. */
 export interface LoadStatement {
   /** OCI reference (e.g., "schemas-k8s:v1.31" or "ghcr.io/org/schemas:v2.0") */
@@ -13,6 +21,8 @@ export interface LoadStatement {
   tarEntryPath: string;
   /** Imported symbol names (e.g., ["Deployment", "StatefulSet"]) */
   symbols: string[];
+  /** Namespace imports (e.g., [{name: "k8s", value: "*"}] from k8s="*") */
+  namespaces: NamespaceImport[];
   /** Full load path as written (e.g., "schemas-k8s:v1.31/apps/v1.star") */
   fullPath: string;
 }
@@ -142,35 +152,45 @@ export function ociRefToCacheKey(ociRef: string): string {
  * with no symbols.
  */
 export function parseLoadStatements(text: string): LoadStatement[] {
-  // Create regex inside the function to avoid shared state with global flag
-  const loadRe = /load\(\s*"([^"]+)"((?:\s*,\s*"[^"]*")*)\s*\)/g;
-  const symbolRe = /"([^"]*)"/g;
+  // Match load() calls — capture the path and everything after it up to closing paren.
+  // The args part captures both "symbol" and name="value" patterns.
+  const loadRe = /load\(\s*"([^"]+)"((?:\s*,\s*(?:\w+\s*=\s*)?"[^"]*")*)\s*\)/g;
+  // Match each argument: optional `name=` prefix followed by "value"
+  const argRe = /(?:(\w+)\s*=\s*)?"([^"]*)"/g;
 
   const results: LoadStatement[] = [];
   let match: RegExpExecArray | null;
 
   while ((match = loadRe.exec(text)) !== null) {
     const fullPath = match[1];
-    const symbolsPart = match[2];
+    const argsPart = match[2];
 
     // Skip non-OCI paths
     if (!isOciLoadPath(fullPath)) continue;
 
-    // Extract symbols from the comma-separated part
+    // Extract symbols and namespace imports from args
     const symbols: string[] = [];
-    let symMatch: RegExpExecArray | null;
-    const symRe = new RegExp(symbolRe.source, "g");
-    while ((symMatch = symRe.exec(symbolsPart)) !== null) {
-      if (symMatch[1]) {
-        symbols.push(symMatch[1]);
+    const namespaces: NamespaceImport[] = [];
+    let argMatch: RegExpExecArray | null;
+    const re = new RegExp(argRe.source, "g");
+    while ((argMatch = re.exec(argsPart)) !== null) {
+      const name = argMatch[1]; // undefined for positional "symbol", set for name="value"
+      const value = argMatch[2];
+
+      if (name) {
+        // Namespace import: k8s="*" or aliased: myname="Symbol"
+        namespaces.push({ name, value });
+      } else if (value) {
+        // Direct import: "Deployment" or "*"
+        symbols.push(value);
       }
     }
 
-    // Skip entries with zero symbols
-    if (symbols.length === 0) continue;
+    // Skip entries with zero symbols and zero namespaces
+    if (symbols.length === 0 && namespaces.length === 0) continue;
 
     const { ociRef, tarEntryPath } = splitOciPath(fullPath);
-    results.push({ ociRef, tarEntryPath, symbols, fullPath });
+    results.push({ ociRef, tarEntryPath, symbols, namespaces, fullPath });
   }
 
   return results;

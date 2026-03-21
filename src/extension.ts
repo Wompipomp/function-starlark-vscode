@@ -14,12 +14,12 @@ import {
 } from "vscode-languageclient/node";
 import type { DocumentSymbol } from "vscode-languageserver-types";
 import { BuildifierFormatProvider } from "./buildifier";
-import { parseLoadStatements } from "./load-parser";
+import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { OciDownloader } from "./oci/downloader";
 import { SchemaIndex } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
-import { generateStubFile } from "./schema-stubs";
+import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -38,6 +38,37 @@ export function getSchemaCachePath(context: vscode.ExtensionContext): string {
     return override;
   }
   return context.globalStorageUri.fsPath;
+}
+
+/**
+ * Scan all open starlark documents for namespace load imports and collect
+ * which cache-relative .star files map to which namespace names.
+ *
+ * Returns a Map of namespace name → list of cache-relative file paths.
+ */
+function collectNamespaceFiles(
+  _context: vscode.ExtensionContext,
+): Map<string, string[]> {
+  const nsFiles = new Map<string, string[]>();
+
+  for (const doc of vscode.workspace.textDocuments) {
+    if (doc.languageId !== "starlark") continue;
+    const loads = parseLoadStatements(doc.getText());
+    for (const load of loads) {
+      for (const ns of load.namespaces) {
+        if (ns.value === "*") {
+          const cachePath = ociRefToCacheKey(load.ociRef) + "/" + load.tarEntryPath;
+          const existing = nsFiles.get(ns.name) ?? [];
+          if (!existing.includes(cachePath)) {
+            existing.push(cachePath);
+          }
+          nsFiles.set(ns.name, existing);
+        }
+      }
+    }
+  }
+
+  return nsFiles;
 }
 
 export function setupSchemaWatcher(
@@ -230,7 +261,16 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   if (!fs.existsSync(schemaStubPath)) {
     fs.writeFileSync(schemaStubPath, "# auto-generated schema stubs\n", "utf-8");
   }
-  const args = ["start", "--builtin-paths", builtinsPath, "--builtin-paths", schemaStubPath];
+  // Three --builtin-paths:
+  // 1. builtins.py (file) — function-starlark builtins (global)
+  // 2. _schemas.py (file) — flat schema stubs for direct imports (global)
+  // 3. schemaDir (directory) — namespace module .py files (k8s.py → k8s.Deployment)
+  const args = [
+    "start",
+    "--builtin-paths", builtinsPath,
+    "--builtin-paths", schemaStubPath,
+    "--builtin-paths", schemaDir,
+  ];
 
   const serverOptions: ServerOptions = {
     command: lspPath,
@@ -447,9 +487,13 @@ export async function activate(
         downloader.ensureArtifact(load.ociRef).then(() => {
           const cacheDir = getSchemaCachePath(context);
           schemaIndex!.rebuild(cacheDir);
-          // Generate stub file — FileSystemWatcher will detect the new
-          // .star/.py files and trigger a debounced LSP restart automatically
+          // Generate flat stub file for direct imports
           generateStubFile(cacheDir);
+          // Generate namespace module stubs from load statements in all open documents
+          const nsFiles = collectNamespaceFiles(context);
+          if (nsFiles.size > 0) {
+            generateNamespaceStubs(cacheDir, nsFiles);
+          }
           updateDocumentImports(document.uri.toString(), text, schemaIndex!);
           diagnosticProvider?.updateDiagnostics(document);
           if (statusBarItem) {

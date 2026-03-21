@@ -39,12 +39,13 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
     const text = document.getText();
     const loadStatements = parseLoadStatements(text);
 
-    // Build set of imported symbols (from OCI load statements)
+    // Build set of imported symbols and namespace bindings
     const importedSymbols = new Set<string>();
+    const namespaceSymbols = new Map<string, Set<string>>();
     for (const stmt of loadStatements) {
+      const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
+
       if (stmt.symbols.includes("*")) {
-        // Star import: expand to all symbols from the referenced file
-        const fullCachePath = ociRefToCacheKey(stmt.ociRef) + "/" + stmt.tarEntryPath;
         const fileSymbols = this.schemaIndex.getSymbolsForFile(fullCachePath);
         for (const sym of fileSymbols) {
           importedSymbols.add(sym);
@@ -52,6 +53,18 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
       } else {
         for (const sym of stmt.symbols) {
           importedSymbols.add(sym);
+        }
+      }
+
+      // Namespace imports: k8s="*"
+      for (const ns of stmt.namespaces) {
+        if (ns.value === "*") {
+          const fileSymbols = this.schemaIndex.getSymbolsForFile(fullCachePath);
+          const existing = namespaceSymbols.get(ns.name) ?? new Set<string>();
+          for (const sym of fileSymbols) {
+            existing.add(sym);
+          }
+          namespaceSymbols.set(ns.name, existing);
         }
       }
     }
@@ -62,27 +75,38 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
     // Get all schema symbols from the index
     const allSchemaSymbols = this.schemaIndex.getAllSymbols();
 
-    // Scan for PascalCase function calls
-    const callRe = /\b([A-Z]\w*)\s*\(/g;
+    // Scan for PascalCase function calls — both bare and namespace-qualified
+    const callRe = /\b(?:(\w+)\.)?([A-Z]\w*)\s*\(/g;
     const diagnostics: vscode.Diagnostic[] = [];
     const seen = new Set<string>();
 
     let match: RegExpExecArray | null;
     while ((match = callRe.exec(text)) !== null) {
-      const symbolName = match[1];
+      const nsPrefix = match[1]; // undefined for bare calls, "k8s" for k8s.Deployment(
+      const symbolName = match[2];
+      const fullMatch = nsPrefix ? `${nsPrefix}.${symbolName}` : symbolName;
 
-      // Skip if already imported, is a builtin, or not in schema index
+      if (nsPrefix) {
+        // Namespace-qualified: k8s.Deployment( — check if namespace has the symbol
+        const nsSyms = namespaceSymbols.get(nsPrefix);
+        if (nsSyms?.has(symbolName)) continue;
+        // If namespace exists but symbol isn't in it, or namespace doesn't exist, skip
+        // (we only flag bare symbols, not namespace misuses)
+        continue;
+      }
+
+      // Bare symbol: skip if imported, builtin, or not in schema index
       if (knownSymbols.has(symbolName)) continue;
       if (!allSchemaSymbols.has(symbolName)) continue;
 
       // Only report each symbol once
-      if (seen.has(symbolName)) continue;
-      seen.add(symbolName);
+      if (seen.has(fullMatch)) continue;
+      seen.add(fullMatch);
 
       const pos = document.positionAt(match.index);
       const range = new vscode.Range(
         pos,
-        new vscode.Position(pos.line, pos.character + symbolName.length),
+        new vscode.Position(pos.line, pos.character + fullMatch.length),
       );
 
       const diag = new vscode.Diagnostic(
