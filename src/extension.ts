@@ -17,6 +17,8 @@ let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.LogOutputChannel | undefined;
 let notificationShown = false;
+let schemaWatcher: vscode.FileSystemWatcher | undefined;
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function getSchemaCachePath(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("functionStarlark");
@@ -25,6 +27,36 @@ export function getSchemaCachePath(context: vscode.ExtensionContext): string {
     return override;
   }
   return context.globalStorageUri.fsPath;
+}
+
+export function setupSchemaWatcher(
+  context: vscode.ExtensionContext,
+): vscode.FileSystemWatcher {
+  const schemaDir = getSchemaCachePath(context);
+  const pattern = new vscode.RelativePattern(
+    vscode.Uri.file(schemaDir),
+    "**/*.py",
+  );
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+  function scheduleRestart() {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(async () => {
+      debounceTimer = undefined;
+      if (client && client.isRunning()) {
+        await client.restart();
+      }
+    }, 400);
+  }
+
+  watcher.onDidCreate(scheduleRestart);
+  watcher.onDidChange(scheduleRestart);
+  watcher.onDidDelete(scheduleRestart);
+
+  context.subscriptions.push(watcher);
+  return watcher;
 }
 
 function binaryExists(binaryPath: string): boolean {
@@ -224,8 +256,20 @@ export async function activate(
     vscode.workspace.onDidChangeConfiguration(async (e) => {
       if (
         !e.affectsConfiguration("functionStarlark.lsp.path") &&
-        !e.affectsConfiguration("functionStarlark.lsp.enabled")
+        !e.affectsConfiguration("functionStarlark.lsp.enabled") &&
+        !e.affectsConfiguration("functionStarlark.schemas.path")
       ) {
+        return;
+      }
+
+      if (e.affectsConfiguration("functionStarlark.schemas.path")) {
+        schemaWatcher?.dispose();
+        if (client) {
+          await client.stop();
+          client = undefined;
+        }
+        await startLsp(context);
+        schemaWatcher = setupSchemaWatcher(context);
         return;
       }
 
@@ -259,6 +303,7 @@ export async function activate(
   context.subscriptions.push(statusBarItem);
 
   await startLsp(context);
+  schemaWatcher = setupSchemaWatcher(context);
 }
 
 export async function deactivate(): Promise<void> {

@@ -1,8 +1,8 @@
 import { vi } from "vitest";
 
 export const Uri = {
-  file: (p: string) => ({ fsPath: p, toString: () => p }),
-  parse: (s: string) => ({ fsPath: s, toString: () => s }),
+  file: vi.fn((p: string) => ({ fsPath: p, toString: () => p })),
+  parse: vi.fn((s: string) => ({ fsPath: s, toString: () => s })),
 };
 
 export class RelativePattern {

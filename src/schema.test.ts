@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 
-vi.mock("vscode");
 vi.mock("fs");
 vi.mock("child_process");
 vi.mock("os", () => ({ platform: () => "darwin" }));
