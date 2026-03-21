@@ -89,7 +89,7 @@ describe("getAllowedSymbols", () => {
       },
     ]);
     const index = createMockSchemaIndex({
-      "apps/v1.star": new Set(["Deployment", "StatefulSet", "ReplicaSet"]),
+      "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet", "ReplicaSet"]),
     });
 
     const allowed = getAllowedSymbols(
@@ -119,7 +119,7 @@ describe("getAllowedSymbols", () => {
       },
     ]);
     const index = createMockSchemaIndex({
-      "apps/v1.star": new Set(["Deployment", "StatefulSet", "ReplicaSet"]),
+      "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet", "ReplicaSet"]),
     });
 
     const allowed = getAllowedSymbols(
@@ -155,7 +155,7 @@ describe("updateDocumentImports", () => {
 
   it("refreshes the cached load() parse for a document", () => {
     const index = createMockSchemaIndex({
-      "apps/v1.star": new Set(["Deployment"]),
+      "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
     });
 
     // Initial parse
@@ -199,7 +199,7 @@ describe("createScopingMiddleware", () => {
         },
       ]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
       });
       const doc = createMockDocument(
         "test://file.star",
@@ -324,7 +324,7 @@ describe("createScopingMiddleware", () => {
         },
       ]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
       });
       const doc = createMockDocument("test://file.star", "stale text");
 
@@ -357,7 +357,7 @@ describe("createScopingMiddleware", () => {
         },
       ]);
       const index = createMockSchemaIndex({
-        "apps/v1.star": new Set(["Deployment"]),
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
       });
       const doc = createMockDocument(
         "test://file.star",
