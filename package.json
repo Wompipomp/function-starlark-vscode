@@ -63,7 +63,23 @@
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Trace communication between VSCode and the Starlark language server"
+        },
+        "functionStarlark.buildifier.path": {
+          "type": "string",
+          "default": "buildifier",
+          "description": "Path to the buildifier binary"
+        },
+        "functionStarlark.buildifier.fixLintOnFormat": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply buildifier lint fixes when formatting"
         }
+      }
+    },
+    "configurationDefaults": {
+      "[starlark]": {
+        "editor.defaultFormatter": "wompipomp.vscode-function-starlark",
+        "editor.formatOnSave": true
       }
     }
   },
