@@ -18,6 +18,15 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.LogOutputChannel | undefined;
 let notificationShown = false;
 
+export function getSchemaCachePath(context: vscode.ExtensionContext): string {
+  const config = vscode.workspace.getConfiguration("functionStarlark");
+  const override = config.get<string>("schemas.path", "");
+  if (override) {
+    return override;
+  }
+  return context.globalStorageUri.fsPath;
+}
+
 function binaryExists(binaryPath: string): boolean {
   try {
     if (path.isAbsolute(binaryPath)) {
@@ -122,10 +131,12 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   }
 
   const builtinsPath = path.join(context.extensionPath, "starlark", "builtins.py");
+  const schemaDir = getSchemaCachePath(context);
+  fs.mkdirSync(schemaDir, { recursive: true });
 
   const serverOptions: ServerOptions = {
     command: lspPath,
-    args: ["start", "--builtin-paths", builtinsPath],
+    args: ["start", "--builtin-paths", builtinsPath, "--builtin-paths", schemaDir],
   };
 
   const clientOptions: LanguageClientOptions = {

@@ -4,21 +4,31 @@ vi.mock("vscode");
 vi.mock("fs");
 vi.mock("child_process");
 vi.mock("os", () => ({ platform: () => "darwin" }));
-vi.mock("vscode-languageclient/node", () => ({
-  LanguageClient: vi.fn().mockImplementation(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    restart: vi.fn().mockResolvedValue(undefined),
-    isRunning: vi.fn().mockReturnValue(true),
-    onDidChangeState: vi.fn(),
-  })),
-  RevealOutputChannelOn: { Error: 2 },
-  State: { Running: 1, Starting: 3, Stopped: 2 },
-}));
+
+let capturedServerOptions: { args: string[] } | undefined;
+
+vi.mock("vscode-languageclient/node", () => {
+  const MockLanguageClient = vi.fn().mockImplementation(
+    function (this: Record<string, unknown>, _id: string, _name: string, serverOpts: { args: string[] }) {
+      capturedServerOptions = serverOpts;
+      this.start = vi.fn().mockResolvedValue(undefined);
+      this.stop = vi.fn().mockResolvedValue(undefined);
+      this.restart = vi.fn().mockResolvedValue(undefined);
+      this.isRunning = vi.fn().mockReturnValue(true);
+      this.onDidChangeState = vi.fn();
+    },
+  );
+  return {
+    LanguageClient: MockLanguageClient,
+    RevealOutputChannelOn: { Error: 2 },
+    State: { Running: 1, Starting: 3, Stopped: 2 },
+  };
+});
 
 import * as vscode from "vscode";
 import * as fs from "fs";
-import { getSchemaCachePath } from "./extension";
+import { execFileSync } from "child_process";
+import { getSchemaCachePath, activate } from "./extension";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
@@ -36,6 +46,13 @@ function makeMockContext(globalStoragePath = "/mock/global/storage") {
     globalStorageUri: { fsPath: globalStoragePath },
     subscriptions: [] as { dispose: () => void }[],
   } as unknown as vscode.ExtensionContext;
+}
+
+/** Stub so binaryExists() returns true for PATH lookups */
+function stubBinaryFound() {
+  (execFileSync as unknown as Mock).mockReturnValue(
+    Buffer.from("/usr/local/bin/starlark-lsp\n"),
+  );
 }
 
 describe("getSchemaCachePath", () => {
@@ -78,56 +95,16 @@ describe("getSchemaCachePath", () => {
 describe("startLsp schema integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedServerOptions = undefined;
     (fs.existsSync as unknown as Mock).mockReturnValue(false);
     (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
   });
 
   it("calls fs.mkdirSync on the schema cache directory with recursive option", async () => {
-    const { execFileSync } = await import("child_process");
-    (execFileSync as unknown as Mock).mockReturnValue(
-      Buffer.from("/usr/local/bin/starlark-lsp\n"),
-    );
-    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
-      makeConfig(),
-    );
+    stubBinaryFound();
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
 
-    const { LanguageClient } = await import("vscode-languageclient/node");
-    const mockClient = {
-      start: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn().mockResolvedValue(undefined),
-      restart: vi.fn().mockResolvedValue(undefined),
-      isRunning: vi.fn().mockReturnValue(true),
-      onDidChangeState: vi.fn(),
-    };
-    (LanguageClient as unknown as Mock).mockImplementation(() => mockClient);
-
-    const { activate } = await import("./extension");
-    const ctx = makeMockContext();
-    (vscode.window.createOutputChannel as unknown as Mock).mockReturnValue({
-      log: true,
-    });
-    (vscode.window.createStatusBarItem as unknown as Mock).mockReturnValue({
-      show: vi.fn(),
-      hide: vi.fn(),
-      dispose: vi.fn(),
-      text: "",
-      command: "",
-      tooltip: "",
-    });
-    (vscode.commands.registerCommand as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.languages.registerDocumentFormattingEditProvider as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.workspace.onDidChangeConfiguration as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.window.onDidChangeActiveTextEditor as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-
-    await activate(ctx);
+    await activate(makeMockContext());
 
     expect(fs.mkdirSync).toHaveBeenCalledWith(
       "/mock/global/storage",
@@ -136,66 +113,19 @@ describe("startLsp schema integration", () => {
   });
 
   it("constructs args with two --builtin-paths: builtins.py and schema cache dir", async () => {
-    const { execFileSync } = await import("child_process");
-    (execFileSync as unknown as Mock).mockReturnValue(
-      Buffer.from("/usr/local/bin/starlark-lsp\n"),
-    );
-    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
-      makeConfig(),
-    );
+    stubBinaryFound();
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
 
-    const { LanguageClient } = await import("vscode-languageclient/node");
-    let capturedServerOptions: unknown;
-    (LanguageClient as unknown as Mock).mockImplementation(
-      (_id: string, _name: string, serverOpts: unknown) => {
-        capturedServerOptions = serverOpts;
-        return {
-          start: vi.fn().mockResolvedValue(undefined),
-          stop: vi.fn().mockResolvedValue(undefined),
-          restart: vi.fn().mockResolvedValue(undefined),
-          isRunning: vi.fn().mockReturnValue(true),
-          onDidChangeState: vi.fn(),
-        };
-      },
-    );
+    await activate(makeMockContext());
 
-    (vscode.window.createOutputChannel as unknown as Mock).mockReturnValue({
-      log: true,
-    });
-    (vscode.window.createStatusBarItem as unknown as Mock).mockReturnValue({
-      show: vi.fn(),
-      hide: vi.fn(),
-      dispose: vi.fn(),
-      text: "",
-      command: "",
-      tooltip: "",
-    });
-    (vscode.commands.registerCommand as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.languages.registerDocumentFormattingEditProvider as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.workspace.onDidChangeConfiguration as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-    (vscode.window.onDidChangeActiveTextEditor as unknown as Mock).mockReturnValue({
-      dispose: vi.fn(),
-    });
-
-    const { activate } = await import("./extension");
-    const ctx = makeMockContext();
-
-    await activate(ctx);
-
-    const opts = capturedServerOptions as { args: string[] };
-    expect(opts.args).toContain("--builtin-paths");
+    expect(capturedServerOptions).toBeDefined();
+    const args = capturedServerOptions!.args;
 
     // Find all --builtin-paths and their values
     const builtinPathValues: string[] = [];
-    for (let i = 0; i < opts.args.length; i++) {
-      if (opts.args[i] === "--builtin-paths") {
-        builtinPathValues.push(opts.args[i + 1]);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--builtin-paths") {
+        builtinPathValues.push(args[i + 1]);
       }
     }
 
