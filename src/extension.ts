@@ -11,6 +11,7 @@ import {
   ServerOptions,
   State,
 } from "vscode-languageclient/node";
+import { BuildifierFormatProvider } from "./buildifier";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -120,13 +121,6 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel(
-      "Function Starlark LSP",
-      { log: true },
-    );
-  }
-
   const builtinsPath = path.join(context.extensionPath, "starlark", "builtins.py");
 
   const serverOptions: ServerOptions = {
@@ -179,6 +173,18 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  outputChannel = vscode.window.createOutputChannel("Function Starlark LSP", {
+    log: true,
+  });
+
+  const formatter = new BuildifierFormatProvider(outputChannel);
+  context.subscriptions.push(
+    vscode.languages.registerDocumentFormattingEditProvider(
+      { scheme: "file", language: "starlark" },
+      formatter,
+    ),
+  );
+
   statusBarItem = createStatusBar();
 
   context.subscriptions.push(
