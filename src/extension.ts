@@ -11,6 +11,7 @@ import {
   ServerOptions,
   State,
 } from "vscode-languageclient/node";
+import type { DocumentSymbol } from "vscode-languageserver-types";
 import { BuildifierFormatProvider } from "./buildifier";
 
 let client: LanguageClient | undefined;
@@ -57,6 +58,50 @@ export function setupSchemaWatcher(
 
   context.subscriptions.push(watcher);
   return watcher;
+}
+
+/** Clamp selectionRange inside fullRange for every DocumentSymbol (recursive). */
+function fixDocumentSymbols(symbols: DocumentSymbol[]): void {
+  for (const sym of symbols) {
+    const full = sym.range;
+    const sel = sym.selectionRange;
+    if (
+      sel.start.line < full.start.line ||
+      (sel.start.line === full.start.line && sel.start.character < full.start.character)
+    ) {
+      sel.start = { ...full.start };
+    }
+    if (
+      sel.end.line > full.end.line ||
+      (sel.end.line === full.end.line && sel.end.character > full.end.character)
+    ) {
+      sel.end = { ...full.end };
+    }
+    if (sym.children) {
+      fixDocumentSymbols(sym.children);
+    }
+  }
+}
+
+/** Convert LSP DocumentSymbol[] to vscode.DocumentSymbol[] after ranges are fixed. */
+function toVscodeSymbols(symbols: DocumentSymbol[]): vscode.DocumentSymbol[] {
+  return symbols.map((sym) => {
+    const range = new vscode.Range(
+      sym.range.start.line, sym.range.start.character,
+      sym.range.end.line, sym.range.end.character,
+    );
+    const selRange = new vscode.Range(
+      sym.selectionRange.start.line, sym.selectionRange.start.character,
+      sym.selectionRange.end.line, sym.selectionRange.end.character,
+    );
+    const result = new vscode.DocumentSymbol(
+      sym.name, sym.detail ?? "", sym.kind as unknown as vscode.SymbolKind, range, selRange,
+    );
+    if (sym.children) {
+      result.children = toVscodeSymbols(sym.children);
+    }
+    return result;
+  });
 }
 
 function binaryExists(binaryPath: string): boolean {
@@ -176,6 +221,26 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
     outputChannel,
     revealOutputChannelOn: RevealOutputChannelOn.Error,
     connectionOptions: { maxRestartCount: 3 },
+    middleware: {
+      provideDocumentSymbols: async (document, token) => {
+        // Bypass next() — it converts before we can fix ranges, and the
+        // vscode.DocumentSymbol constructor rejects invalid selectionRange.
+        // Instead: raw request → fix ranges → convert manually.
+        if (!client || !client.isRunning()) {
+          return undefined;
+        }
+        const result = await client.sendRequest<DocumentSymbol[] | null>(
+          "textDocument/documentSymbol",
+          { textDocument: { uri: document.uri.toString() } },
+          token,
+        );
+        if (!result || !Array.isArray(result)) {
+          return undefined;
+        }
+        fixDocumentSymbols(result);
+        return toVscodeSymbols(result);
+      },
+    },
   };
 
   client = new LanguageClient(
