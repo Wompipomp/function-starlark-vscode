@@ -62,15 +62,12 @@ function runCredentialHelper(
     const child = spawn(binaryName, ["get"], { timeout: 5000 });
 
     let stdout = "";
-    let stderr = "";
-
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.toString();
     });
 
-    child.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
+    // Consume stderr to prevent backpressure; content is not used
+    child.stderr.on("data", () => {});
 
     child.on("close", (code: number | null) => {
       if (code !== 0 || !stdout) {

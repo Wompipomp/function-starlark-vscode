@@ -7,12 +7,18 @@ import * as vscode from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
+  type Middleware,
   RevealOutputChannelOn,
   ServerOptions,
   State,
 } from "vscode-languageclient/node";
 import type { DocumentSymbol } from "vscode-languageserver-types";
 import { BuildifierFormatProvider } from "./buildifier";
+import { parseLoadStatements } from "./load-parser";
+import { OciDownloader } from "./oci/downloader";
+import { SchemaIndex } from "./schema-index";
+import { createScopingMiddleware, updateDocumentImports, clearDocumentImports } from "./middleware";
+import { MissingImportDiagnosticProvider } from "./diagnostics";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -20,6 +26,9 @@ let outputChannel: vscode.LogOutputChannel | undefined;
 let notificationShown = false;
 let schemaWatcher: vscode.FileSystemWatcher | undefined;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let schemaIndex: SchemaIndex | undefined;
+let downloader: OciDownloader | undefined;
+let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
 
 export function getSchemaCachePath(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("functionStarlark");
@@ -36,7 +45,7 @@ export function setupSchemaWatcher(
   const schemaDir = getSchemaCachePath(context);
   const pattern = new vscode.RelativePattern(
     vscode.Uri.file(schemaDir),
-    "**/*.py",
+    "**/*.{py,star}",
   );
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
@@ -216,6 +225,17 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
     args: ["start", "--builtin-paths", builtinsPath, "--builtin-paths", schemaDir],
   };
 
+  // Build middleware: always include provideDocumentSymbols fix,
+  // add scoping middleware when schemas are enabled
+  const scopingMiddleware = schemaIndex
+    ? createScopingMiddleware(schemaIndex, (uri) => {
+        for (const doc of vscode.workspace.textDocuments) {
+          if (doc.uri.toString() === uri) return doc.getText();
+        }
+        return undefined;
+      })
+    : undefined;
+
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "starlark" }],
     outputChannel,
@@ -240,6 +260,7 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
         fixDocumentSymbols(result);
         return toVscodeSymbols(result);
       },
+      ...(scopingMiddleware as unknown as Partial<Middleware>),
     },
   };
 
@@ -322,8 +343,18 @@ export async function activate(
       if (
         !e.affectsConfiguration("functionStarlark.lsp.path") &&
         !e.affectsConfiguration("functionStarlark.lsp.enabled") &&
-        !e.affectsConfiguration("functionStarlark.schemas.path")
+        !e.affectsConfiguration("functionStarlark.schemas.path") &&
+        !e.affectsConfiguration("functionStarlark.schemas.registry") &&
+        !e.affectsConfiguration("functionStarlark.schemas.enabled")
       ) {
+        return;
+      }
+
+      if (e.affectsConfiguration("functionStarlark.schemas.registry")) {
+        const cfg = vscode.workspace.getConfiguration("functionStarlark");
+        const registry = cfg.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
+        const cacheDir = getSchemaCachePath(context);
+        downloader = new OciDownloader(cacheDir, registry, outputChannel);
         return;
       }
 
@@ -338,8 +369,8 @@ export async function activate(
         return;
       }
 
-      const config = vscode.workspace.getConfiguration("functionStarlark");
-      if (!config.get<boolean>("lsp.enabled", true)) {
+      const cfg = vscode.workspace.getConfiguration("functionStarlark");
+      if (!cfg.get<boolean>("lsp.enabled", true)) {
         if (client) {
           await client.stop();
           client = undefined;
@@ -367,8 +398,83 @@ export async function activate(
 
   context.subscriptions.push(statusBarItem);
 
+  // Initialize schema modules when enabled
+  const config = vscode.workspace.getConfiguration("functionStarlark");
+  if (config.get<boolean>("schemas.enabled", false)) {
+    const cacheDir = getSchemaCachePath(context);
+    const registry = config.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
+    schemaIndex = new SchemaIndex();
+    schemaIndex.buildFromCache(cacheDir);
+    downloader = new OciDownloader(cacheDir, registry, outputChannel);
+  }
+
   await startLsp(context);
   schemaWatcher = setupSchemaWatcher(context);
+
+  // Register document open/save/close handlers for schema integration
+  if (schemaIndex) {
+    async function handleDocumentForSchemas(document: vscode.TextDocument) {
+      if (document.languageId !== "starlark" || !downloader || !schemaIndex) return;
+      const text = document.getText();
+      const loads = parseLoadStatements(text);
+
+      // Trigger downloads for uncached OCI refs
+      for (const load of loads) {
+        if (statusBarItem) {
+          statusBarItem.text = `$(sync~spin) Starlark: pulling ${load.ociRef}...`;
+        }
+        downloader.ensureArtifact(load.ociRef).then(() => {
+          schemaIndex!.rebuild(getSchemaCachePath(context));
+          updateDocumentImports(document.uri.toString(), text, schemaIndex!);
+          if (statusBarItem) {
+            statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
+          }
+        }).catch(() => {
+          // Download failure logged by downloader
+          if (statusBarItem) {
+            statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
+          }
+        });
+      }
+
+      // Update document imports cache for middleware filtering
+      updateDocumentImports(document.uri.toString(), text, schemaIndex!);
+      // Update diagnostics
+      diagnosticProvider?.updateDiagnostics(document);
+    }
+
+    context.subscriptions.push(
+      vscode.workspace.onDidOpenTextDocument(handleDocumentForSchemas),
+      vscode.workspace.onDidSaveTextDocument(handleDocumentForSchemas),
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        clearDocumentImports(doc.uri.toString());
+      }),
+    );
+
+    // Register diagnostics provider
+    const diagCollection = vscode.languages.createDiagnosticCollection("functionStarlark");
+    diagnosticProvider = new MissingImportDiagnosticProvider(schemaIndex, diagCollection);
+    context.subscriptions.push(diagCollection);
+    context.subscriptions.push(
+      vscode.languages.registerCodeActionsProvider(
+        { scheme: "file", language: "starlark" },
+        diagnosticProvider,
+        { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+      ),
+    );
+  }
+
+  // Register Clear Schema Cache command
+  context.subscriptions.push(
+    vscode.commands.registerCommand("functionStarlark.clearSchemaCache", async () => {
+      const cacheDir = getSchemaCachePath(context);
+      await fs.promises.rm(cacheDir, { recursive: true, force: true });
+      await fs.promises.mkdir(cacheDir, { recursive: true });
+      schemaIndex?.rebuild(cacheDir);
+      if (client?.isRunning()) await client.restart();
+      vscode.window.showInformationMessage("Schema cache cleared.");
+    }),
+  );
 }
 
 export async function deactivate(): Promise<void> {
