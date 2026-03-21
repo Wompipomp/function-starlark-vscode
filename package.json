@@ -18,6 +18,13 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "functionStarlark.restartServer",
+        "title": "Restart Starlark LSP",
+        "category": "Function Starlark"
+      }
+    ],
     "languages": [
       {
         "id": "starlark",
@@ -50,6 +57,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the Starlark language server for autocomplete and hover docs"
+        },
+        "functionStarlark.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace communication between VSCode and the Starlark language server"
         }
       }
     }
