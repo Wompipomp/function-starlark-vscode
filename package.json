@@ -6,6 +6,10 @@
   "publisher": "wompipomp",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wompipomp/function-starlark-vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
