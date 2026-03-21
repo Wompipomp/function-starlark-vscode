@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-03-21T19:24:12.266Z"
-last_activity: 2026-03-21 -- Completed 05-03 schema index and scoping middleware
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-03-21T19:33:22Z"
+last_activity: 2026-03-21 -- Completed 05-04 extension wiring and missing-import diagnostics
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
-  percent: 82
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 5 of 5 (OCI Auto-Download & Load Scoping)
-Plan: 3 of 4 in current phase (Plan 03 complete)
-Status: Phase 05 In Progress -- Plan 03 complete
-Last activity: 2026-03-21 -- Completed 05-03 schema index and scoping middleware
+Plan: 4 of 4 in current phase (Plan 04 complete)
+Status: Phase 05 Complete -- All plans delivered
+Last activity: 2026-03-21 -- Completed 05-04 extension wiring and missing-import diagnostics
 
-Progress: [████████--] 82%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [████████--] 82%
 | Phase 05 P01 | 3min | 2 tasks | 4 files |
 | Phase 05 P03 | 3min | 2 tasks | 4 files |
 | Phase 05 P02 | 3min | 2 tasks | 6 files |
+| Phase 05 P04 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase 05]: Used function constructor pattern in vi.mock for OciClient to support new keyword in tests
 - [Phase 05]: Atomic cache population: write to temp dir then rename, prevents partial cache on failure
 - [Phase 05]: In-flight promise map keyed by full resolved registry/repository:tag for concurrent download dedup
+- [Phase 05]: PascalCase regex for symbol detection avoids false positives on variable names
+- [Phase 05]: Reverse index in SchemaIndex for O(1) symbol-to-file lookup in quick-fix code actions
+- [Phase 05]: schemas.enabled gate conditionally initializes all schema features
 
 ### Roadmap Evolution
 
@@ -107,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:24:12.264Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-03-21T19:33:22Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None
