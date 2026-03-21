@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-03-21T19:33:22Z"
-last_activity: 2026-03-21 -- Completed 05-04 extension wiring and missing-import diagnostics
+status: completed
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-03-21T19:52:02.051Z"
+last_activity: 2026-03-21 -- Completed 05-05 star import path fix (gap closure)
 progress:
   total_phases: 5
   completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-21)
 ## Current Position
 
 Phase: 5 of 5 (OCI Auto-Download & Load Scoping)
-Plan: 4 of 4 in current phase (Plan 04 complete)
-Status: Phase 05 Complete -- All plans delivered
-Last activity: 2026-03-21 -- Completed 05-04 extension wiring and missing-import diagnostics
+Plan: 5 of 5 in current phase (Plan 05 complete)
+Status: Phase 05 Complete -- All plans delivered (including gap closure)
+Last activity: 2026-03-21 -- Completed 05-05 star import path fix (gap closure)
 
 Progress: [██████████] 100%
 
@@ -61,6 +61,8 @@ Progress: [██████████] 100%
 | Phase 05 P03 | 3min | 2 tasks | 4 files |
 | Phase 05 P02 | 3min | 2 tasks | 6 files |
 | Phase 05 P04 | 7min | 2 tasks | 8 files |
+| Phase 05 P05 | 2min | 2 tasks | 4 files |
+| Phase 05 P05 | 2min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -89,13 +91,14 @@ Recent decisions affecting current work:
 - [Phase 05]: Credential helper resolution: credHelpers > credsStore > static auths > anonymous
 - [Phase 05]: BUILTIN_NAMES is static ReadonlySet of 21 names matching builtins.py
 - [Phase 05]: Middleware caches allowed symbols per document URI to avoid re-parsing load() on every request
-- [Phase 05]: Star import expands via SchemaIndex.getSymbolsForFile() using tarEntryPath as lookup key
+- [Phase 05]: Star import expands via SchemaIndex.getSymbolsForFile() using full cache-relative path (ociRef.replace(":", "/") + "/" + tarEntryPath)
 - [Phase 05]: Used function constructor pattern in vi.mock for OciClient to support new keyword in tests
 - [Phase 05]: Atomic cache population: write to temp dir then rename, prevents partial cache on failure
 - [Phase 05]: In-flight promise map keyed by full resolved registry/repository:tag for concurrent download dedup
 - [Phase 05]: PascalCase regex for symbol detection avoids false positives on variable names
 - [Phase 05]: Reverse index in SchemaIndex for O(1) symbol-to-file lookup in quick-fix code actions
 - [Phase 05]: schemas.enabled gate conditionally initializes all schema features
+- [Phase 05]: Full cache-relative path built via ociRef.replace(':', '/') + '/' + tarEntryPath to match SchemaIndex.walkDir() keys
 
 ### Roadmap Evolution
 
@@ -111,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:33:22Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-03-21T19:51:53.946Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
