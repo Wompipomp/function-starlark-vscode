@@ -42,8 +42,17 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
     // Build set of imported symbols (from OCI load statements)
     const importedSymbols = new Set<string>();
     for (const stmt of loadStatements) {
-      for (const sym of stmt.symbols) {
-        importedSymbols.add(sym);
+      if (stmt.symbols.includes("*")) {
+        // Star import: expand to all symbols from the referenced file
+        const fullCachePath = stmt.ociRef.replace(":", "/") + "/" + stmt.tarEntryPath;
+        const fileSymbols = this.schemaIndex.getSymbolsForFile(fullCachePath);
+        for (const sym of fileSymbols) {
+          importedSymbols.add(sym);
+        }
+      } else {
+        for (const sym of stmt.symbols) {
+          importedSymbols.add(sym);
+        }
       }
     }
 
