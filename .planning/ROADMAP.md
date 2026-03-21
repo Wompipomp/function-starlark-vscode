@@ -2,7 +2,7 @@
 
 ## Overview
 
-This roadmap delivers a VSCode extension for function-starlark composition authoring in four phases. Phase 1 establishes the build pipeline and syntax highlighting -- a working, installable extension with zero runtime dependencies. Phase 2 adds the core value proposition: LSP-powered autocomplete, hover docs, and signature help for all function-starlark builtins. Phase 3 layers on buildifier format-on-save as an independent, optional feature. Phase 4 adds schema IntelliSense for typed constructor completions, blocked on upstream dependencies (function-starlark v1.7 + starlark-gen) and split into two sub-phases: 4a (LSP restart with schema paths) and 4b (per-file load-aware middleware).
+This roadmap delivers a VSCode extension for function-starlark composition authoring in four phases. Phase 1 establishes the build pipeline and syntax highlighting -- a working, installable extension with zero runtime dependencies. Phase 2 adds the core value proposition: LSP-powered autocomplete, hover docs, and signature help for all function-starlark builtins. Phase 3 layers on buildifier format-on-save as an independent, optional feature. Phase 4 adds schema IntelliSense for typed constructor completions, blocked on upstream dependencies (function-starlark v1.7 + starlark-gen) and split into two sub-phases: 4a (LSP restart with schema paths) and 4b (per-file load-aware middleware). Phase 5 adds automatic OCI artifact download and per-file load() scoping for schema completions.
 
 ## Phases
 
@@ -16,6 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: LSP Core** - Builtin autocomplete, hover docs, signature help, and error handling (completed 2026-03-21)
 - [x] **Phase 3: Buildifier** - Format-on-save integration with buildifier (completed 2026-03-21)
 - [ ] **Phase 4: Schema IntelliSense** - Typed autocomplete for schema constructors from generated .star files
+- [ ] **Phase 5: OCI Auto-Download & Load Scoping** - Automatic OCI schema download and per-file load() completion scoping
 
 ## Phase Details
 
@@ -108,10 +109,40 @@ Plans:
 
 ---
 
+### Phase 5: OCI Auto-Download & Load Scoping
+**Goal**: User gets automatic OCI schema artifact download when load() statements reference them, and completions/hover/signature help are scoped per-file based on what each file actually imports
+**Depends on**: Phase 4
+**Requirements**: R7.1, R7.2, R7.3, R7.4, R7.6
+**Success Criteria** (what must be TRUE):
+  1. Opening a .star file with `load("schemas-k8s:v1.31/apps/v1.star", "Deployment")` auto-downloads the OCI artifact if not cached
+  2. Completions show only explicitly imported symbols + builtins (not all globally loaded schemas)
+  3. Star imports (`load("...", "*")`) allow all symbols from the referenced file
+  4. Hover and signature help respect the same per-file scoping rules
+  5. Missing import diagnostics with quick-fix code actions help users add forgotten load() statements
+  6. "Clear Schema Cache" command provides escape hatch for corrupted cache
+  7. Extension degrades gracefully when schemas.enabled is false or downloads fail
+
+**Plans**: 4 plans
+
+Plans:
+- [ ] 05-01-PLAN.md -- Load statement parser with OCI path validation/resolution, Docker credential helper integration
+- [ ] 05-02-PLAN.md -- OCI Distribution API client with token auth, download orchestrator with cache/extraction/dedup
+- [ ] 05-03-PLAN.md -- Schema symbol index from cached files, LanguageClient middleware for per-file completion/hover/signatureHelp filtering
+- [ ] 05-04-PLAN.md -- Missing-import diagnostics with quick-fix, extension wiring, package.json settings/commands
+
+**Research flags:**
+- OCI Distribution Spec: Two HTTP calls (manifest + blob) with Bearer token auth challenge-response
+- nanotar (zero deps, 2KB) for tar extraction -- not node-tar or tar-stream
+- Raw HTTP fetch() instead of npm OCI packages (oci-client lacks credential helpers, oci-registry-client deprecated)
+- Docker credential helper protocol for private registry auth
+- starlark-lsp .star file support in --builtin-paths needs runtime verification (may need .py rename workaround)
+
+---
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -119,3 +150,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 2. LSP Core | 2/2 | Complete   | 2026-03-21 |
 | 3. Buildifier | 1/1 | Complete | 2026-03-21 |
 | 4. Schema IntelliSense | 0/2 | Not started | - |
+| 5. OCI Auto-Download & Load Scoping | 0/4 | Not started | - |
