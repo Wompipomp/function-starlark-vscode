@@ -37,7 +37,8 @@ export function getAllowedSymbols(
   for (const stmt of loadStatements) {
     if (stmt.symbols.includes("*")) {
       // Star import: add all symbols from the referenced file
-      const fileSymbols = schemaIndex.getSymbolsForFile(stmt.tarEntryPath);
+      const fullCachePath = stmt.ociRef.replace(":", "/") + "/" + stmt.tarEntryPath;
+      const fileSymbols = schemaIndex.getSymbolsForFile(fullCachePath);
       for (const sym of fileSymbols) {
         allowed.add(sym);
       }
