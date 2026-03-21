@@ -1,0 +1,166 @@
+import { describe, it, expect } from "vitest";
+import {
+  parseLoadStatements,
+  isOciLoadPath,
+  splitOciPath,
+  resolveOciRef,
+} from "./load-parser";
+
+describe("isOciLoadPath", () => {
+  it('returns true for short OCI path "schemas-k8s:v1.31/apps/v1.star"', () => {
+    expect(isOciLoadPath("schemas-k8s:v1.31/apps/v1.star")).toBe(true);
+  });
+
+  it('returns true for full OCI URI "ghcr.io/org/schemas:v2.0/path/file.star"', () => {
+    expect(isOciLoadPath("ghcr.io/org/schemas:v2.0/path/file.star")).toBe(true);
+  });
+
+  it('returns false for Bazel label "//lib:utils.star"', () => {
+    expect(isOciLoadPath("//lib:utils.star")).toBe(false);
+  });
+
+  it('returns false for path without .star extension "schemas-k8s:v1.31/apps/v1"', () => {
+    expect(isOciLoadPath("schemas-k8s:v1.31/apps/v1")).toBe(false);
+  });
+
+  it('returns false for incomplete path "schemas-k8s:v1.31" (no slash after tag)', () => {
+    expect(isOciLoadPath("schemas-k8s:v1.31")).toBe(false);
+  });
+
+  it("returns false for relative path without colon", () => {
+    expect(isOciLoadPath("lib/utils.star")).toBe(false);
+  });
+});
+
+describe("splitOciPath", () => {
+  it("splits short path into ociRef and tarEntryPath", () => {
+    expect(splitOciPath("schemas-k8s:v1.31/apps/v1.star")).toEqual({
+      ociRef: "schemas-k8s:v1.31",
+      tarEntryPath: "apps/v1.star",
+    });
+  });
+
+  it("splits full OCI URI into ociRef and tarEntryPath", () => {
+    expect(splitOciPath("ghcr.io/org/schemas:v2.0/path/file.star")).toEqual({
+      ociRef: "ghcr.io/org/schemas:v2.0",
+      tarEntryPath: "path/file.star",
+    });
+  });
+
+  it("handles deeply nested tar entry paths", () => {
+    expect(splitOciPath("schemas-k8s:v1.31/apps/v1/nested/file.star")).toEqual({
+      ociRef: "schemas-k8s:v1.31",
+      tarEntryPath: "apps/v1/nested/file.star",
+    });
+  });
+});
+
+describe("resolveOciRef", () => {
+  it("resolves short path using default registry", () => {
+    expect(resolveOciRef("schemas-k8s:v1.31", "ghcr.io/wompipomp")).toEqual({
+      registryHost: "ghcr.io",
+      repository: "wompipomp/schemas-k8s",
+      tag: "v1.31",
+    });
+  });
+
+  it("resolves full OCI URI ignoring default registry", () => {
+    expect(resolveOciRef("ghcr.io/org/schemas:v2.0", "ghcr.io/wompipomp")).toEqual({
+      registryHost: "ghcr.io",
+      repository: "org/schemas",
+      tag: "v2.0",
+    });
+  });
+
+  it("handles registry with nested path", () => {
+    expect(resolveOciRef("schemas-k8s:v1.31", "ghcr.io/myorg/sub")).toEqual({
+      registryHost: "ghcr.io",
+      repository: "myorg/sub/schemas-k8s",
+      tag: "v1.31",
+    });
+  });
+});
+
+describe("parseLoadStatements", () => {
+  it("parses single load with one symbol", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", "Deployment")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([
+      {
+        ociRef: "schemas-k8s:v1.31",
+        tarEntryPath: "apps/v1.star",
+        symbols: ["Deployment"],
+        fullPath: "schemas-k8s:v1.31/apps/v1.star",
+      },
+    ]);
+  });
+
+  it("parses load with multiple symbols", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", "Deployment", "StatefulSet")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].symbols).toEqual(["Deployment", "StatefulSet"]);
+  });
+
+  it("parses load with star import", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star", "*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].symbols).toEqual(["*"]);
+  });
+
+  it("parses load with full OCI URI", () => {
+    const text = 'load("ghcr.io/org/schemas:v2.0/path/file.star", "Foo")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].ociRef).toBe("ghcr.io/org/schemas:v2.0");
+    expect(result[0].tarEntryPath).toBe("path/file.star");
+    expect(result[0].fullPath).toBe("ghcr.io/org/schemas:v2.0/path/file.star");
+  });
+
+  it("ignores non-OCI paths", () => {
+    const text = 'load("//lib:utils.star", "helper")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([]);
+  });
+
+  it("ignores paths without .star extension", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1", "Deployment")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([]);
+  });
+
+  it("ignores incomplete paths (no slash after tag)", () => {
+    const text = 'load("schemas-k8s", "Deployment")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([]);
+  });
+
+  it("handles multiple load statements in one file", () => {
+    const text = `
+load("schemas-k8s:v1.31/apps/v1.star", "Deployment")
+load("schemas-k8s:v1.31/core/v1.star", "Service", "ConfigMap")
+`;
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(2);
+    expect(result[0].symbols).toEqual(["Deployment"]);
+    expect(result[1].symbols).toEqual(["Service", "ConfigMap"]);
+  });
+
+  it("ignores load with no symbols", () => {
+    const text = 'load("schemas-k8s:v1.31/apps/v1.star")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([]);
+  });
+
+  it("handles mixed OCI and non-OCI load statements", () => {
+    const text = `
+load("//lib:utils.star", "helper")
+load("schemas-k8s:v1.31/apps/v1.star", "Deployment")
+load("relative/path.star", "something")
+`;
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].symbols).toEqual(["Deployment"]);
+  });
+});
