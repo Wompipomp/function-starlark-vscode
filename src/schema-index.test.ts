@@ -300,11 +300,12 @@ describe("SchemaIndex", () => {
   describe("getSchemaMetadata", () => {
     it("returns parsed field metadata after buildFromCache", () => {
       const cacheDir = "/tmp/schemas";
+      // Note: parseSchemas skips fields named "name" and "doc" (schema-level params)
       setupMockFS(
         {
           "schemas-k8s/v1.31/core/v1.star": [
             'Account = schema("Account",',
-            '  name=field(type="string", required=True, doc="Account name"),',
+            '  label=field(type="string", required=True, doc="Account label"),',
             '  location=field(type="string", required=True, doc="Region"),',
             '  tags=field(type="string", doc="Tags"),',
             ")",
@@ -321,11 +322,11 @@ describe("SchemaIndex", () => {
       expect(metadata!.name).toBe("Account");
       expect(metadata!.fields).toHaveLength(3);
 
-      const nameField = metadata!.fields.find((f) => f.name === "name");
-      expect(nameField).toBeDefined();
-      expect(nameField!.type).toBe("string");
-      expect(nameField!.required).toBe(true);
-      expect(nameField!.doc).toBe("Account name");
+      const labelField = metadata!.fields.find((f) => f.name === "label");
+      expect(labelField).toBeDefined();
+      expect(labelField!.type).toBe("string");
+      expect(labelField!.required).toBe(true);
+      expect(labelField!.doc).toBe("Account label");
 
       const tagsField = metadata!.fields.find((f) => f.name === "tags");
       expect(tagsField).toBeDefined();

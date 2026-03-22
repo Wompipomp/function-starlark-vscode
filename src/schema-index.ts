@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { parseSchemas, type ParsedSchema } from "./schema-stubs";
 
 /**
  * All builtin names from function-starlark that always pass through
@@ -73,6 +74,7 @@ export function extractTopLevelDefs(content: string): Set<string> {
 export class SchemaIndex {
   private index = new Map<string, Set<string>>();
   private reverseIndex = new Map<string, string>();
+  private metadataIndex = new Map<string, ParsedSchema>();
 
   /**
    * Scan a cache directory recursively and index all .star files.
@@ -83,6 +85,7 @@ export class SchemaIndex {
   buildFromCache(cacheDir: string): void {
     this.index.clear();
     this.reverseIndex.clear();
+    this.metadataIndex.clear();
     this.walkDir(cacheDir, cacheDir);
   }
 
@@ -115,6 +118,16 @@ export class SchemaIndex {
   }
 
   /**
+   * Get the parsed schema metadata for a given symbol name.
+   *
+   * @param symbolName - Schema constructor name (e.g., "Account")
+   * @returns ParsedSchema with field-level metadata, or undefined if not found
+   */
+  getSchemaMetadata(symbolName: string): ParsedSchema | undefined {
+    return this.metadataIndex.get(symbolName);
+  }
+
+  /**
    * Get the union of all symbols across all indexed .star files.
    */
   getAllSymbols(): ReadonlySet<string> {
@@ -143,6 +156,11 @@ export class SchemaIndex {
           for (const sym of symbols) {
             this.reverseIndex.set(sym, relativePath);
           }
+        }
+        // Parse and store schema metadata for type checking
+        const schemas = parseSchemas(content);
+        for (const schema of schemas) {
+          this.metadataIndex.set(schema.name, schema);
         }
       }
     }
