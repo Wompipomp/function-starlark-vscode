@@ -28,6 +28,11 @@
         "command": "functionStarlark.clearSchemaCache",
         "title": "Clear Schema Cache",
         "category": "Function Starlark"
+      },
+      {
+        "command": "functionStarlark.showOutput",
+        "title": "Show Output",
+        "category": "Function Starlark"
       }
     ],
     "languages": [

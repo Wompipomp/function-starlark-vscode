@@ -105,6 +105,14 @@ export function clearDocumentImports(uri: string): void {
   documentImportsCache.delete(uri);
 }
 
+/**
+ * Clear the entire document imports cache.
+ * Call this when the schema subsystem is torn down to prevent stale data.
+ */
+export function clearAllDocumentImports(): void {
+  documentImportsCache.clear();
+}
+
 /** Extract the label string from a CompletionItem label (string or CompletionItemLabel). */
 function getCompletionLabel(label: string | { label: string }): string {
   return typeof label === "string" ? label : label.label;
