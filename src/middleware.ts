@@ -139,6 +139,15 @@ export function createScopingMiddleware(
       const text = getDocumentText(uri) ?? document.getText();
       const imports = getDocumentImports(uri, text, schemaIndex);
 
+      // Detect namespace dot-completion context: check if we're completing
+      // after "ns." where ns is a known namespace. starlark-lsp returns
+      // bare labels (e.g., "Deployment") for dot completions, not "ns.Deployment".
+      const pos = position as { line: number; character: number };
+      const lineText = text.split("\n")[pos.line] ?? "";
+      const beforeCursor = lineText.substring(0, pos.character);
+      const nsDotMatch = beforeCursor.match(/(\w+)\.\w*$/);
+      const activeNamespace = nsDotMatch ? imports.namespaces.get(nsDotMatch[1]) : undefined;
+
       const isArray = Array.isArray(result);
       const items = isArray
         ? (result as Array<{ label: string | { label: string } }>)
@@ -146,17 +155,10 @@ export function createScopingMiddleware(
 
       const filtered = items.filter((item) => {
         const label = getCompletionLabel(item.label);
+        // If completing after a known namespace (e.g., "k8s."), allow its members
+        if (activeNamespace?.has(label)) return true;
         // Allow flat symbols (builtins + direct imports)
         if (imports.allowed.has(label)) return true;
-        // Allow namespace-qualified symbols (k8s.Deployment)
-        // starlark-lsp provides these as "ns.Symbol" for module builtins
-        const dotIdx = label.indexOf(".");
-        if (dotIdx > 0) {
-          const ns = label.substring(0, dotIdx);
-          const sym = label.substring(dotIdx + 1);
-          const nsSymbols = imports.namespaces.get(ns);
-          if (nsSymbols?.has(sym)) return true;
-        }
         return false;
       });
 
