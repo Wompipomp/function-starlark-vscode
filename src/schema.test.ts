@@ -38,6 +38,7 @@ vi.mock("./middleware", () => ({
   createScopingMiddleware: vi.fn().mockReturnValue({}),
   updateDocumentImports: vi.fn(),
   clearDocumentImports: vi.fn(),
+  clearAllDocumentImports: vi.fn(),
 }));
 vi.mock("./diagnostics", () => {
   const MockProvider = vi.fn().mockImplementation(
@@ -487,5 +488,203 @@ describe("Phase 5 integration", () => {
       expect.any(Object),
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
     );
+  });
+});
+
+describe("showOutput command in package.json", () => {
+  it("has functionStarlark.showOutput in contributes.commands", async () => {
+    const pkgRaw = await fs.promises.readFile(
+      require("path").resolve(__dirname, "..", "package.json"),
+      "utf-8",
+    );
+    const pkg = JSON.parse(pkgRaw);
+    const commands = pkg.contributes.commands as Array<{ command: string; title: string; category?: string }>;
+    const showOutput = commands.find((c) => c.command === "functionStarlark.showOutput");
+    expect(showOutput).toBeDefined();
+    expect(showOutput!.category).toBe("Function Starlark");
+  });
+});
+
+describe("schemas.enabled=false at startup gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedServerOptions = undefined;
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+  });
+
+  it("does not call createFileSystemWatcher when schemas.enabled=false", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await activate(makeMockContext());
+
+    expect(vscode.workspace.createFileSystemWatcher).not.toHaveBeenCalled();
+  });
+
+  it("omits schema dir from --builtin-paths when schemas.enabled=false", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await activate(makeMockContext());
+
+    expect(capturedServerOptions).toBeDefined();
+    const args = capturedServerOptions!.args;
+
+    // Find all --builtin-paths and their values
+    const builtinPathValues: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--builtin-paths") {
+        builtinPathValues.push(args[i + 1]);
+      }
+    }
+
+    // Only builtins.py, no schema dir
+    expect(builtinPathValues).toHaveLength(1);
+    expect(builtinPathValues[0]).toContain("builtins.py");
+  });
+
+  it("does not call mkdirSync for schema dir when schemas.enabled=false", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await activate(makeMockContext());
+
+    // mkdirSync should NOT have been called (no schema dir creation)
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("schemas.enabled runtime toggle", () => {
+  let configChangeHandler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>;
+  let mockWatcher: {
+    onDidCreate: Mock;
+    onDidChange: Mock;
+    onDidDelete: Mock;
+    dispose: Mock;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedServerOptions = undefined;
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+
+    // Capture the config change handler
+    (vscode.workspace.onDidChangeConfiguration as Mock).mockImplementation(
+      (handler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>) => {
+        configChangeHandler = handler;
+        return { dispose: vi.fn() };
+      },
+    );
+  });
+
+  it("toggle true->false: disposes watcher, stops and recreates client without schema dir", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const firstClient = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Now switch to schemas.enabled=false
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.enabled",
+    });
+
+    // Watcher should have been disposed
+    expect(mockWatcher.dispose).toHaveBeenCalled();
+
+    // Old client should have been stopped
+    expect(firstClient.stop).toHaveBeenCalled();
+
+    // New client should have been created (total 2)
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
+
+    // New client should NOT have schema dir in --builtin-paths
+    const args = capturedServerOptions!.args;
+    const builtinPathValues: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--builtin-paths") {
+        builtinPathValues.push(args[i + 1]);
+      }
+    }
+    expect(builtinPathValues).toHaveLength(1);
+    expect(builtinPathValues[0]).toContain("builtins.py");
+  });
+
+  it("toggle false->true: creates SchemaIndex, OciDownloader, and client with schema dir", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await activate(makeMockContext());
+
+    // SchemaIndex and OciDownloader should not have been created initially
+    expect(SchemaIndex as unknown as Mock).not.toHaveBeenCalled();
+    expect(OciDownloader as unknown as Mock).not.toHaveBeenCalled();
+
+    const firstClient = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Now switch to schemas.enabled=true
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.enabled",
+    });
+
+    // SchemaIndex and OciDownloader should now be created
+    expect(SchemaIndex as unknown as Mock).toHaveBeenCalled();
+    expect(OciDownloader as unknown as Mock).toHaveBeenCalled();
+
+    // Old client should have been stopped
+    expect(firstClient.stop).toHaveBeenCalled();
+
+    // New client should have been created with schema dir in --builtin-paths
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
+    const args = capturedServerOptions!.args;
+    const builtinPathValues: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--builtin-paths") {
+        builtinPathValues.push(args[i + 1]);
+      }
+    }
+    expect(builtinPathValues).toHaveLength(2);
+    expect(builtinPathValues[0]).toContain("builtins.py");
+    expect(builtinPathValues[1]).toBe("/mock/global/storage");
   });
 });
