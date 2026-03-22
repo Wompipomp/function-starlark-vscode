@@ -14,8 +14,17 @@ const accountSchema = makeMetadata("Account", [
   { name: "tags", type: "string", required: false },
 ]);
 
+const deploymentSchema = makeMetadata("Deployment", [
+  { name: "name", type: "string", required: true },
+  { name: "replicas", type: "int", required: false },
+  { name: "paused", type: "bool", required: false },
+  { name: "metadata", type: "ObjectMeta", required: false },
+  { name: "config", type: "", required: false },
+]);
+
 function getMetadata(symbolName: string): SchemaMetadata | undefined {
   if (symbolName === "Account") return accountSchema;
+  if (symbolName === "Deployment") return deploymentSchema;
   return undefined;
 }
 
@@ -90,5 +99,193 @@ describe("checkDocument - missing required fields", () => {
     // "storage.Account" starts at 0, "Account" starts at 8
     expect(missing[0].startChar).toBe(8);
     expect(missing[0].endChar).toBe(15);
+  });
+});
+
+describe("checkDocument - type mismatch", () => {
+  it("detects int passed where string expected", () => {
+    const text = `Account(name=42, location="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe('Field "name" expects string, got int');
+    // Squiggle should cover the value "42"
+    expect(mismatch[0].line).toBe(0);
+  });
+
+  it("detects string passed where int expected", () => {
+    const text = `Deployment(name="web", replicas="three")`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe('Field "replicas" expects int, got string');
+  });
+
+  it("detects int passed where bool expected", () => {
+    const text = `Deployment(name="web", paused=42)`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe('Field "paused" expects bool, got int');
+  });
+
+  it("detects literal value passed where schema-typed field expected", () => {
+    const text = `Deployment(name="web", metadata="bad")`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe(
+      'Field "metadata" expects ObjectMeta, got string',
+    );
+  });
+
+  it("skips variables and expressions (no false positives)", () => {
+    const text = `Account(name=my_var, location=get_location())`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(0);
+  });
+
+  it("accepts correct types with no diagnostics", () => {
+    const text = `Deployment(name="web", replicas=3, paused=True)`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(0);
+  });
+
+  it("skips fields with empty type (no type checking possible)", () => {
+    const text = `Deployment(name="web", config=42)`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(0);
+  });
+
+  it("detects bool literal True/False correctly", () => {
+    const text = `Account(name=True, location=False)`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(2);
+  });
+
+  it("detects None literal for type mismatch", () => {
+    const text = `Deployment(name="web", replicas=None)`;
+    const imported = new Set(["Deployment"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe('Field "replicas" expects int, got None');
+  });
+
+  it("squiggle covers the offending value, not the field name", () => {
+    const text = `Account(name=42, location="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    // "Account(name=" is 14 chars, "42" starts at 14, ends at 16
+    expect(mismatch[0].startChar).toBe(14);
+    expect(mismatch[0].endChar).toBe(16);
+  });
+});
+
+describe("checkDocument - unknown field", () => {
+  it("detects unknown keyword argument (typo)", () => {
+    const text = `Account(name="foo", locaiton="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const unknown = diags.filter((d) => d.kind === "unknown-field");
+
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0].message).toBe('Unknown field "locaiton" in Account()');
+  });
+
+  it("squiggle covers the field name for unknown fields", () => {
+    const text = `Account(name="foo", locaiton="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const unknown = diags.filter((d) => d.kind === "unknown-field");
+
+    expect(unknown).toHaveLength(1);
+    // "Account(name="foo", " is 20 chars, "locaiton" starts at 20
+    expect(unknown[0].startChar).toBe(20);
+    expect(unknown[0].endChar).toBe(28);
+  });
+
+  it("no unknown-field diagnostic for valid field names", () => {
+    const text = `Account(name="foo", location="us-east", tags="t")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const unknown = diags.filter((d) => d.kind === "unknown-field");
+    expect(unknown).toHaveLength(0);
+  });
+
+  it("handles multi-line constructor calls correctly", () => {
+    const text = `Account(\n  name="foo",\n  location="bar"\n)`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    // All required fields provided, all fields valid -- no diagnostics
+    expect(diags).toHaveLength(0);
+  });
+
+  it("detects unknown field in multi-line call", () => {
+    const text = `Account(\n  name="foo",\n  locaiton="bar"\n)`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const unknown = diags.filter((d) => d.kind === "unknown-field");
+    const missing = diags.filter((d) => d.kind === "missing-field");
+
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0].message).toBe('Unknown field "locaiton" in Account()');
+    // "locaiton" is on line 2 (0-indexed)
+    expect(unknown[0].line).toBe(2);
+
+    // "location" is still missing since "locaiton" is not a known field
+    expect(missing).toHaveLength(1);
+    expect(missing[0].message).toBe(
+      'Missing required field "location" in Account()',
+    );
   });
 });
