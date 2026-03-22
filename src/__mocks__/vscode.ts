@@ -162,6 +162,13 @@ export class DocumentSymbol {
   }
 }
 
+export class ThemeColor {
+  id: string;
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+
 export const TextEdit = {
   replace: vi.fn((range: Range, newText: string) => ({ range, newText })),
 };

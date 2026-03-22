@@ -75,7 +75,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { execFileSync } from "child_process";
 import { LanguageClient } from "vscode-languageclient/node";
-import { getSchemaCachePath, setupSchemaWatcher, activate } from "./extension";
+import { getSchemaCachePath, setupSchemaWatcher, activate, deactivate, getSchemaGeneration } from "./extension";
 import { SchemaIndex } from "./schema-index";
 import { OciDownloader } from "./oci/downloader";
 
@@ -357,22 +357,39 @@ describe("schemas.path config change handling", () => {
     );
   });
 
-  it("triggers client stop and startLsp when schemas.path changes", async () => {
+  it("triggers full teardown + reinit + LSP restart when schemas.path changes (after debounce)", async () => {
+    vi.useFakeTimers();
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
     await activate(makeMockContext());
 
     const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+    const initialSchemaIndexCalls = (SchemaIndex as unknown as Mock).mock.instances.length;
 
     // Simulate schemas.path config change
-    await configChangeHandler({
+    configChangeHandler({
       affectsConfiguration: (s: string) =>
         s === "functionStarlark.schemas.path",
     });
 
+    // Should not fire immediately (debounced)
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
     // Client should have been stopped (teardown)
     expect(clientInstance.stop).toHaveBeenCalled();
 
+    // teardownSchemaSubsystem should have been called (SchemaIndex recreated via initSchemaSubsystem)
+    expect((SchemaIndex as unknown as Mock).mock.instances.length).toBeGreaterThan(initialSchemaIndexCalls);
+
     // A new LanguageClient should have been created (startLsp called again)
     expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 
   it("existing lsp.path and lsp.enabled config handling still works", async () => {
@@ -390,12 +407,15 @@ describe("schemas.path config change handling", () => {
     expect(clientInstance.restart).toHaveBeenCalled();
   });
 
-  it("schemas.registry config change recreates downloader", async () => {
+  it("schemas.registry config change triggers full debounced teardown + reinit", async () => {
+    vi.useFakeTimers();
     (vscode.workspace.getConfiguration as Mock).mockReturnValue(
       makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
     );
 
     await activate(makeMockContext());
+
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
 
     // Update config to new registry
     (vscode.workspace.getConfiguration as Mock).mockReturnValue(
@@ -403,14 +423,25 @@ describe("schemas.path config change handling", () => {
     );
 
     // Simulate schemas.registry config change
-    await configChangeHandler({
+    configChangeHandler({
       affectsConfiguration: (s: string) =>
         s === "functionStarlark.schemas.registry",
     });
 
-    // Should not restart the client (registry change doesn't require restart)
-    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
-    expect(clientInstance.restart).not.toHaveBeenCalled();
+    // Should not fire immediately (debounced)
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Full teardown + reinit: old client stopped, new client created
+    expect(clientInstance.stop).toHaveBeenCalled();
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
+
+    // OciDownloader should be recreated with new registry
+    expect(OciDownloader as unknown as Mock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 });
 
@@ -689,5 +720,455 @@ describe("schemas.enabled runtime toggle", () => {
     expect(builtinPathValues).toHaveLength(2);
     expect(builtinPathValues[0]).toContain("builtins.py");
     expect(builtinPathValues[1]).toBe("/mock/global/storage");
+  });
+});
+
+describe("config refresh: debounced path/registry handler", () => {
+  let configChangeHandler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    capturedServerOptions = undefined;
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+
+    (vscode.workspace.onDidChangeConfiguration as Mock).mockImplementation(
+      (handler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>) => {
+        configChangeHandler = handler;
+        return { dispose: vi.fn() };
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rapid config changes debounce to single reinit", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Fire 5 rapid path changes within 200ms
+    for (let i = 0; i < 5; i++) {
+      configChangeHandler({
+        affectsConfiguration: (s: string) =>
+          s === "functionStarlark.schemas.path",
+      });
+      await vi.advanceTimersByTimeAsync(40);
+    }
+
+    // Before debounce completes, no teardown should have occurred
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Advance past the 500ms debounce from last event
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Only ONE teardown/reinit cycle should have fired
+    expect(clientInstance.stop).toHaveBeenCalledTimes(1);
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2); // initial + 1 reinit
+  });
+
+  it("debounce timer resets on each new event", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Fire first event at t=0
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Wait 400ms (not at 500ms threshold yet)
+    await vi.advanceTimersByTimeAsync(400);
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Fire another event at t=400ms, resetting the timer
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Wait another 400ms (t=800ms total, but only 400ms from last event)
+    await vi.advanceTimersByTimeAsync(400);
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Wait final 100ms to reach 500ms from last event (t=900ms total)
+    await vi.advanceTimersByTimeAsync(100);
+    expect(clientInstance.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("schemas.enabled toggle is immediate (not debounced)", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Switch to schemas.enabled=false
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": false }),
+    );
+
+    await configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.enabled",
+    });
+
+    // Should be immediate (no debounce needed) -- client stopped right away
+    expect(clientInstance.stop).toHaveBeenCalled();
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("config refresh: generation counter", () => {
+  let configChangeHandler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>;
+  let ociResolve: (value: string) => void;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    capturedServerOptions = undefined;
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+
+    (vscode.workspace.onDidChangeConfiguration as Mock).mockImplementation(
+      (handler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>) => {
+        configChangeHandler = handler;
+        return { dispose: vi.fn() };
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("generation counter increments when debounced handler fires", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const genBefore = getSchemaGeneration();
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(getSchemaGeneration()).toBe(genBefore + 1);
+  });
+
+  it("stale OCI download results are discarded after config change", async () => {
+    // Set up deferred OCI download that we can control
+    const { parseLoadStatements } = await import("./load-parser");
+    (parseLoadStatements as Mock).mockReturnValue([
+      { ociRef: "ghcr.io/wompipomp/test:v1", tarEntryPath: "test.star", namespaces: [] },
+    ]);
+
+    // Create a controllable OCI promise
+    let resolveOci!: () => void;
+    const ociPromise = new Promise<string>((resolve) => {
+      resolveOci = () => resolve("/cache/artifact");
+    });
+    const { OciDownloader: MockOci } = await import("./oci/downloader");
+    (MockOci as unknown as Mock).mockImplementation(
+      function (this: Record<string, unknown>) {
+        this.ensureArtifact = vi.fn().mockReturnValue(ociPromise);
+      },
+    );
+
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    // Mock open documents to trigger OCI download
+    (vscode.workspace.textDocuments as unknown) = [{
+      languageId: "starlark",
+      getText: () => 'load("oci://ghcr.io/wompipomp/test:v1/test.star", "foo")',
+      uri: { toString: () => "file:///test.star" },
+    }];
+
+    await activate(makeMockContext());
+
+    // Now change the config path (triggers debounced teardown/reinit)
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce to fire the handler (increments generation)
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Now resolve the OCI download from the OLD generation
+    resolveOci();
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+    // The SchemaIndex.rebuild from the old generation's callback should NOT have been called
+    // after the config change. The stale result should have been discarded.
+    const { SchemaIndex: MockSchema } = await import("./schema-index");
+    const firstSchemaInstance = (MockSchema as unknown as Mock).mock.instances[0];
+    // rebuild should not be called on the stale instance after generation change
+    expect(firstSchemaInstance.rebuild).not.toHaveBeenCalled();
+
+    // Reset textDocuments
+    (vscode.workspace.textDocuments as unknown) = [];
+  });
+});
+
+describe("config refresh: status bar feedback", () => {
+  let configChangeHandler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    capturedServerOptions = undefined;
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+
+    (vscode.workspace.onDidChangeConfiguration as Mock).mockImplementation(
+      (handler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>) => {
+        configChangeHandler = handler;
+        return { dispose: vi.fn() };
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows 'Reloading schemas...' during reinit", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    // Get the status bar item mock
+    const statusBar = (vscode.window.createStatusBarItem as Mock).mock.results[0].value;
+
+    // Capture text changes on status bar
+    const textHistory: string[] = [];
+    const originalDescriptor = Object.getOwnPropertyDescriptor(statusBar, "text");
+    let currentText = statusBar.text;
+    Object.defineProperty(statusBar, "text", {
+      get() { return currentText; },
+      set(v: string) { currentText = v; textHistory.push(v); },
+      configurable: true,
+    });
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Should have shown "Reloading schemas..." text
+    expect(textHistory).toContain("$(sync~spin) Starlark: Reloading schemas...");
+  });
+
+  it("shows success flash then reverts to normal state", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const statusBar = (vscode.window.createStatusBarItem as Mock).mock.results[0].value;
+
+    const textHistory: string[] = [];
+    let currentText = statusBar.text;
+    Object.defineProperty(statusBar, "text", {
+      get() { return currentText; },
+      set(v: string) { currentText = v; textHistory.push(v); },
+      configurable: true,
+    });
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce (fires the handler)
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Should show success text
+    expect(textHistory).toContain("$(check) Starlark: Schemas reloaded");
+
+    // Advance past 2s success flash timer
+    await vi.advanceTimersByTimeAsync(2000);
+
+    // Should revert to normal running state
+    expect(currentText).toMatch(/\$\(check\) Starlark$/);
+  });
+
+  it("shows warning on failure with warningBackground color", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const statusBar = (vscode.window.createStatusBarItem as Mock).mock.results[0].value;
+
+    // Make the NEXT LanguageClient instance's start() reject (simulates LSP failure on reinit)
+    // Use mockImplementationOnce to avoid leaking to subsequent tests
+    const origMockImpl = (LanguageClient as unknown as Mock).getMockImplementation()!;
+    (LanguageClient as unknown as Mock).mockImplementationOnce(
+      function (this: Record<string, unknown>, ...args: unknown[]) {
+        origMockImpl.apply(this, args);
+        (this.start as Mock).mockRejectedValueOnce(new Error("Simulated LSP failure"));
+      },
+    );
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Should show error state
+    expect(statusBar.text).toBe("$(warning) Starlark: Schema error");
+    expect(statusBar.backgroundColor).toBeInstanceOf(vscode.ThemeColor);
+  });
+
+  it("resets backgroundColor to undefined on success", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const statusBar = (vscode.window.createStatusBarItem as Mock).mock.results[0].value;
+    // Simulate previous error state
+    statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    // backgroundColor should be reset
+    expect(statusBar.backgroundColor).toBeUndefined();
+  });
+});
+
+describe("config refresh: deactivate cleanup", () => {
+  let configChangeHandler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    (fs.existsSync as unknown as Mock).mockReturnValue(false);
+    (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
+
+    const mockWatcher = {
+      onDidCreate: vi.fn(),
+      onDidChange: vi.fn(),
+      onDidDelete: vi.fn(),
+      dispose: vi.fn(),
+    };
+    (vscode.workspace.createFileSystemWatcher as Mock).mockReturnValue(
+      mockWatcher,
+    );
+    stubBinaryFound();
+
+    (vscode.workspace.onDidChangeConfiguration as Mock).mockImplementation(
+      (handler: (e: { affectsConfiguration: (s: string) => boolean }) => Promise<void>) => {
+        configChangeHandler = handler;
+        return { dispose: vi.fn() };
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("configDebounceTimer is cleared in deactivate()", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    // Start a debounce timer
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Deactivate while timer is pending -- should not throw
+    await deactivate();
+
+    // Advance timer -- should NOT fire teardown/reinit after deactivation
+    // (clearTimeout was called, so nothing should happen)
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Only the initial client should exist (activate created 1, no reinit fired)
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(1);
   });
 });
