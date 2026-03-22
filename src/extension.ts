@@ -75,11 +75,11 @@ export function setupSchemaWatcher(
   context: vscode.ExtensionContext,
 ): vscode.FileSystemWatcher {
   const schemaDir = getSchemaCachePath(context);
-  // Only watch _schemas.py — the single stub file starlark-lsp reads.
-  // Watching *.star would trigger restarts for every OCI-extracted file.
+  // Watch __init__.py and root-level *.py (namespace modules like k8s.py).
+  // NOT recursive — avoids restarts from .star extraction in subdirectories.
   const pattern = new vscode.RelativePattern(
     vscode.Uri.file(schemaDir),
-    "_schemas.py",
+    "*.py",
   );
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
@@ -92,7 +92,7 @@ export function setupSchemaWatcher(
       if (client && client.isRunning()) {
         await client.restart();
       }
-    }, 400);
+    }, 1000);
   }
 
   watcher.onDidCreate(scheduleRestart);
@@ -254,21 +254,16 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   const schemaDir = getSchemaCachePath(context);
   fs.mkdirSync(schemaDir, { recursive: true });
 
-  // Always include schema stub file in args — it may be empty initially
-  // but will be populated after OCI download, and client.restart() reuses
-  // the same args so the file must be present from the start.
-  const schemaStubPath = path.join(schemaDir, "_schemas.py");
-  if (!fs.existsSync(schemaStubPath)) {
-    fs.writeFileSync(schemaStubPath, "# auto-generated schema stubs\n", "utf-8");
+  // Create __init__.py for flat schema stubs — starlark-lsp treats this as
+  // root-level (global) builtins when the directory is passed as --builtin-paths.
+  // Namespace modules (k8s.py) become k8s.Deployment() in the same directory.
+  const initPath = path.join(schemaDir, "__init__.py");
+  if (!fs.existsSync(initPath)) {
+    fs.writeFileSync(initPath, "# auto-generated schema stubs\n", "utf-8");
   }
-  // Three --builtin-paths:
-  // 1. builtins.py (file) — function-starlark builtins (global)
-  // 2. _schemas.py (file) — flat schema stubs for direct imports (global)
-  // 3. schemaDir (directory) — namespace module .py files (k8s.py → k8s.Deployment)
   const args = [
     "start",
     "--builtin-paths", builtinsPath,
-    "--builtin-paths", schemaStubPath,
     "--builtin-paths", schemaDir,
   ];
 

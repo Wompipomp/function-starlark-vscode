@@ -248,7 +248,7 @@ export function generateStubFile(cacheDir: string): string | undefined {
     return true;
   });
 
-  const stubPath = path.join(cacheDir, "_schemas.py");
+  const stubPath = path.join(cacheDir, "__init__.py");
   const newContent = generateStub(unique);
 
   // Only write if content changed — avoids triggering FileSystemWatcher loops
