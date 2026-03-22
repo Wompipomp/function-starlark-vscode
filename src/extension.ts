@@ -31,6 +31,12 @@ let schemaIndex: SchemaIndex | undefined;
 let downloader: OciDownloader | undefined;
 let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
 let schemaDisposables: vscode.Disposable[] = [];
+let configDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let schemaGeneration = 0;
+
+export function getSchemaGeneration(): number {
+  return schemaGeneration;
+}
 
 export function getSchemaCachePath(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("functionStarlark");
@@ -358,6 +364,7 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   const cacheDir = getSchemaCachePath(context);
   const config = vscode.workspace.getConfiguration("functionStarlark");
   const registry = config.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
+  const currentGeneration = schemaGeneration;
 
   schemaIndex = new SchemaIndex();
   schemaIndex.buildFromCache(cacheDir);
@@ -378,6 +385,10 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
         statusBarItem.text = `$(sync~spin) Starlark: pulling ${load.ociRef}...`;
       }
       currentDownloader.ensureArtifact(load.ociRef).then(() => {
+        if (schemaGeneration !== currentGeneration) {
+          outputChannel?.info(`Discarding download for ${load.ociRef} (config changed)`);
+          return;
+        }
         const dir = getSchemaCachePath(context);
         currentSchemaIndex.rebuild(dir);
         generateStubFile(dir);
@@ -488,11 +499,47 @@ export async function activate(
         return;
       }
 
-      if (e.affectsConfiguration("functionStarlark.schemas.registry")) {
-        const cfg = vscode.workspace.getConfiguration("functionStarlark");
-        const registry = cfg.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
-        const cacheDir = getSchemaCachePath(context);
-        downloader = new OciDownloader(cacheDir, registry, outputChannel);
+      if (e.affectsConfiguration("functionStarlark.schemas.path") ||
+          e.affectsConfiguration("functionStarlark.schemas.registry")) {
+        if (configDebounceTimer) {
+          clearTimeout(configDebounceTimer);
+        }
+        configDebounceTimer = setTimeout(async () => {
+          configDebounceTimer = undefined;
+          schemaGeneration++;
+          teardownSchemaSubsystem();
+          if (statusBarItem) {
+            statusBarItem.text = "$(sync~spin) Starlark: Reloading schemas...";
+            statusBarItem.backgroundColor = undefined;
+          }
+          try {
+            initSchemaSubsystem(context);
+            if (client) {
+              await client.stop();
+              client = undefined;
+            }
+            await startLsp(context);
+            if (statusBarItem) {
+              statusBarItem.text = "$(check) Starlark: Schemas reloaded";
+              statusBarItem.backgroundColor = undefined;
+              setTimeout(() => {
+                if (statusBarItem) {
+                  statusBarItem.text = client?.isRunning()
+                    ? "$(check) Starlark"
+                    : "$(x) Starlark";
+                }
+              }, 2000);
+            }
+          } catch (err) {
+            outputChannel?.error("Schema reinit failed", err);
+            if (statusBarItem) {
+              statusBarItem.text = "$(warning) Starlark: Schema error";
+              statusBarItem.backgroundColor = new vscode.ThemeColor(
+                "statusBarItem.warningBackground"
+              );
+            }
+          }
+        }, 500);
         return;
       }
 
@@ -509,17 +556,6 @@ export async function activate(
           client = undefined;
         }
         await startLsp(context);
-        return;
-      }
-
-      if (e.affectsConfiguration("functionStarlark.schemas.path")) {
-        schemaWatcher?.dispose();
-        if (client) {
-          await client.stop();
-          client = undefined;
-        }
-        await startLsp(context);
-        schemaWatcher = setupSchemaWatcher(context);
         return;
       }
 
@@ -574,6 +610,10 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
+  if (configDebounceTimer) {
+    clearTimeout(configDebounceTimer);
+    configDebounceTimer = undefined;
+  }
   if (client) {
     await client.stop();
   }
