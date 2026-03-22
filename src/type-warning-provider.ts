@@ -69,6 +69,7 @@ export class TypeWarningProvider implements vscode.Disposable {
         vscode.DiagnosticSeverity.Warning,
       );
       diag.source = DIAGNOSTIC_SOURCE;
+      diag.code = d.kind;
       return diag;
     });
 

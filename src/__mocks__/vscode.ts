@@ -71,6 +71,7 @@ export class Diagnostic {
   message: string;
   severity: number;
   source?: string;
+  code?: string | number;
   constructor(range: Range, message: string, severity?: number) {
     this.range = range;
     this.message = message;
@@ -83,6 +84,7 @@ export class CodeAction {
   kind?: unknown;
   edit?: unknown;
   diagnostics?: Diagnostic[];
+  isPreferred?: boolean;
   constructor(title: string, kind?: unknown) {
     this.title = title;
     this.kind = kind;
@@ -93,13 +95,54 @@ export const CodeActionKind = {
   QuickFix: "quickfix",
 };
 
+export class SnippetString {
+  value: string;
+  constructor(value?: string) {
+    this.value = value ?? "";
+  }
+  appendText(str: string): this {
+    this.value += str.replace(/[\$\}\\]/g, "\\$&");
+    return this;
+  }
+  appendTabstop(num: number): this {
+    this.value += `$${num}`;
+    return this;
+  }
+  appendPlaceholder(val: string, num: number): this {
+    this.value += `\${${num}:${val}}`;
+    return this;
+  }
+}
+
+export class SnippetTextEdit {
+  range: Range;
+  snippet: SnippetString;
+  constructor(range: Range, snippet: SnippetString) {
+    this.range = range;
+    this.snippet = snippet;
+  }
+  static insert(position: Position, snippet: SnippetString): SnippetTextEdit {
+    return new SnippetTextEdit(new Range(position, position), snippet);
+  }
+  static replace(range: Range, snippet: SnippetString): SnippetTextEdit {
+    return new SnippetTextEdit(range, snippet);
+  }
+}
+
 export class WorkspaceEdit {
   private _edits: Array<{ uri: unknown; position: unknown; text: string }> = [];
+  private _setEdits: Array<[unknown, unknown[]]> = [];
   insert(uri: unknown, position: unknown, text: string): void {
     this._edits.push({ uri, position, text });
   }
+  set(uri: unknown, edits: unknown[]): void {
+    this._setEdits.push([uri, edits]);
+  }
   get edits() {
     return this._edits;
+  }
+  get setEdits() {
+    return this._setEdits;
   }
 }
 

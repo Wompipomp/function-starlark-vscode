@@ -122,6 +122,39 @@ describe("TypeWarningProvider", () => {
       );
     });
 
+    it("sets diag.code to the descriptor kind value", () => {
+      const index = createMockSchemaIndex();
+      const provider = new TypeWarningProvider(index);
+      const doc = createMockDocument("test://file.star", 'Account(name="x")\n');
+
+      mockedGetDocumentImports.mockReturnValue({
+        allowed: new Set<string>(["Account"]),
+        namespaces: new Map<string, Set<string>>(),
+      });
+      mockedCheckDocument.mockReturnValue([
+        {
+          line: 0,
+          startChar: 0,
+          endChar: 7,
+          message: 'Missing required field "location" in Account()',
+          kind: "missing-field" as const,
+        },
+        {
+          line: 0,
+          startChar: 8,
+          endChar: 14,
+          message: 'Field "name" expects int, got string',
+          kind: "type-mismatch" as const,
+        },
+      ]);
+
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = mockDiagCollection.set.mock.calls[0];
+      expect(diagnostics[0].code).toBe("missing-field");
+      expect(diagnostics[1].code).toBe("type-mismatch");
+    });
+
     it("filters out BUILTIN_NAMES from importedSymbols passed to checkDocument", () => {
       const index = createMockSchemaIndex();
       const provider = new TypeWarningProvider(index);
