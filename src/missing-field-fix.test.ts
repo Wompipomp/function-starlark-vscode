@@ -351,4 +351,86 @@ describe("MissingFieldQuickFixProvider", () => {
     const actions = provider.provideCodeActions(doc, range, context);
     expect(actions[0].diagnostics).toEqual([diag1, diag2]);
   });
+
+  it("returns empty array when schema is not found in index", () => {
+    const index = createMockSchemaIndex(new Map()); // no schemas
+    const provider = new MissingFieldQuickFixProvider(index);
+    const doc = createMockDocument("Account()\n");
+
+    const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 7));
+    const diag1 = createDiagnostic(range, 'Missing required field "name" in Account()', "missing-field", "functionStarlark");
+
+    const context = {
+      diagnostics: [diag1],
+      triggerKind: 1,
+      only: undefined,
+    } as unknown as vscode.CodeActionContext;
+
+    const actions = provider.provideCodeActions(doc, range, context);
+    expect(actions).toEqual([]);
+  });
+
+  it("returns empty array when diagnostic message does not match expected format", () => {
+    const index = createMockSchemaIndex(schemas);
+    const provider = new MissingFieldQuickFixProvider(index);
+    const doc = createMockDocument("Account()\n");
+
+    const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 7));
+    const diag1 = createDiagnostic(range, "Some other diagnostic message", "missing-field", "functionStarlark");
+
+    const context = {
+      diagnostics: [diag1],
+      triggerKind: 1,
+      only: undefined,
+    } as unknown as vscode.CodeActionContext;
+
+    const actions = provider.provideCodeActions(doc, range, context);
+    expect(actions).toEqual([]);
+  });
+
+  it("produces separate actions for different constructors on different lines", () => {
+    const index = createMockSchemaIndex(schemas);
+    const provider = new MissingFieldQuickFixProvider(index);
+    const doc = createMockDocument("Account()\nDeployment()\n");
+
+    const rangeAccount = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 7));
+    const rangeDeployment = new vscode.Range(new vscode.Position(1, 0), new vscode.Position(1, 10));
+
+    const diag1 = createDiagnostic(rangeAccount, 'Missing required field "name" in Account()', "missing-field", "functionStarlark");
+    const diag2 = createDiagnostic(rangeDeployment, 'Missing required field "replicas" in Deployment()', "missing-field", "functionStarlark");
+
+    const context = {
+      diagnostics: [diag1, diag2],
+      triggerKind: 1,
+      only: undefined,
+    } as unknown as vscode.CodeActionContext;
+
+    const actions = provider.provideCodeActions(doc, rangeAccount, context);
+    expect(actions).toHaveLength(2);
+    // Different fields from different schemas
+    expect(actions[0].title).toBe("Add missing required fields (name)");
+    expect(actions[1].title).toBe("Add missing required fields (replicas)");
+    // Each action references its own diagnostic
+    expect(actions[0].diagnostics).toEqual([diag1]);
+    expect(actions[1].diagnostics).toEqual([diag2]);
+  });
+
+  it("returns empty array when constructor has unbalanced parens", () => {
+    const index = createMockSchemaIndex(schemas);
+    const provider = new MissingFieldQuickFixProvider(index);
+    // Opening paren but no closing paren
+    const doc = createMockDocument("Account(\n");
+
+    const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 7));
+    const diag1 = createDiagnostic(range, 'Missing required field "name" in Account()', "missing-field", "functionStarlark");
+
+    const context = {
+      diagnostics: [diag1],
+      triggerKind: 1,
+      only: undefined,
+    } as unknown as vscode.CodeActionContext;
+
+    const actions = provider.provideCodeActions(doc, range, context);
+    expect(actions).toEqual([]);
+  });
 });
