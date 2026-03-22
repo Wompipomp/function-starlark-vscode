@@ -160,14 +160,9 @@ describe("startLsp schema integration", () => {
     );
   });
 
-  it("constructs args with --builtin-paths for builtins.py; adds _schemas.py when it exists", async () => {
+  it("constructs args with --builtin-paths for builtins.py and schemaDir", async () => {
     stubBinaryFound();
     (vscode.workspace.getConfiguration as Mock).mockReturnValue(makeConfig());
-    // Simulate _schemas.py existing in cache
-    (fs.existsSync as Mock).mockImplementation((p: string) => {
-      if (typeof p === "string" && p.endsWith("_schemas.py")) return true;
-      return true; // binary exists
-    });
 
     await activate(makeMockContext());
 
@@ -182,10 +177,9 @@ describe("startLsp schema integration", () => {
       }
     }
 
-    expect(builtinPathValues).toHaveLength(3);
+    expect(builtinPathValues).toHaveLength(2);
     expect(builtinPathValues[0]).toContain("builtins.py");
-    expect(builtinPathValues[1]).toContain("_schemas.py");
-    expect(builtinPathValues[2]).toBe("/mock/global/storage"); // schemaDir for namespace modules
+    expect(builtinPathValues[1]).toBe("/mock/global/storage"); // schemaDir as directory
   });
 });
 
@@ -223,7 +217,7 @@ describe("setupSchemaWatcher", () => {
       .calls[0][0];
     expect(pattern).toBeInstanceOf(vscode.RelativePattern);
     expect(pattern.base).toEqual({ fsPath: "/mock/schemas", toString: expect.any(Function) });
-    expect(pattern.pattern).toBe("_schemas.py");
+    expect(pattern.pattern).toBe("*.py");
   });
 
   it("registers onDidCreate, onDidChange, and onDidDelete handlers", () => {
@@ -300,8 +294,8 @@ describe("FileSystemWatcher debounce", () => {
     // Before debounce timer fires, no restart should have been called
     expect(clientInstance.restart).not.toHaveBeenCalled();
 
-    // Advance past the 400ms debounce
-    await vi.advanceTimersByTimeAsync(400);
+    // Advance past the 1000ms debounce
+    await vi.advanceTimersByTimeAsync(1000);
 
     // Only one restart should have fired
     expect(clientInstance.restart).toHaveBeenCalledTimes(1);
@@ -316,19 +310,19 @@ describe("FileSystemWatcher debounce", () => {
     // Fire first event
     scheduleRestart();
 
-    // Wait 300ms (not yet at 400ms threshold)
-    await vi.advanceTimersByTimeAsync(300);
+    // Wait 800ms (not yet at 1000ms threshold)
+    await vi.advanceTimersByTimeAsync(800);
     expect(clientInstance.restart).not.toHaveBeenCalled();
 
     // Fire another event, resetting the timer
     scheduleRestart();
 
-    // Wait another 300ms (600ms total, but only 300ms from last event)
-    await vi.advanceTimersByTimeAsync(300);
+    // Wait another 800ms (1600ms total, but only 800ms from last event)
+    await vi.advanceTimersByTimeAsync(800);
     expect(clientInstance.restart).not.toHaveBeenCalled();
 
-    // Wait final 100ms to reach 400ms from last event
-    await vi.advanceTimersByTimeAsync(100);
+    // Wait final 200ms to reach 1000ms from last event
+    await vi.advanceTimersByTimeAsync(200);
     expect(clientInstance.restart).toHaveBeenCalledTimes(1);
   });
 });
