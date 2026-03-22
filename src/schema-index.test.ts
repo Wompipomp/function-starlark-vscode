@@ -296,4 +296,85 @@ describe("SchemaIndex", () => {
 
     expect(index.getAllSymbols()).toEqual(new Set(["Deployment"]));
   });
+
+  describe("getSchemaMetadata", () => {
+    it("returns parsed field metadata after buildFromCache", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star": [
+            'Account = schema("Account",',
+            '  name=field(type="string", required=True, doc="Account name"),',
+            '  location=field(type="string", required=True, doc="Region"),',
+            '  tags=field(type="string", doc="Tags"),',
+            ")",
+          ].join("\n"),
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+
+      const metadata = index.getSchemaMetadata("Account");
+      expect(metadata).toBeDefined();
+      expect(metadata!.name).toBe("Account");
+      expect(metadata!.fields).toHaveLength(3);
+
+      const nameField = metadata!.fields.find((f) => f.name === "name");
+      expect(nameField).toBeDefined();
+      expect(nameField!.type).toBe("string");
+      expect(nameField!.required).toBe(true);
+      expect(nameField!.doc).toBe("Account name");
+
+      const tagsField = metadata!.fields.find((f) => f.name === "tags");
+      expect(tagsField).toBeDefined();
+      expect(tagsField!.required).toBe(false);
+    });
+
+    it("returns undefined for unknown symbol", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Account = schema("Account", name=field(type="string"))',
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+
+      expect(index.getSchemaMetadata("NonExistent")).toBeUndefined();
+    });
+
+    it("clears metadata on rebuild", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Account = schema("Account", name=field(type="string"))',
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+      expect(index.getSchemaMetadata("Account")).toBeDefined();
+
+      // Rebuild with different schemas
+      vi.resetAllMocks();
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Service = schema("Service", port=field(type="int"))',
+        },
+        cacheDir,
+      );
+
+      index.rebuild(cacheDir);
+      expect(index.getSchemaMetadata("Account")).toBeUndefined();
+      expect(index.getSchemaMetadata("Service")).toBeDefined();
+    });
+  });
 });
