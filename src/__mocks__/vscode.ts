@@ -33,6 +33,7 @@ export const window = {
   createOutputChannel: vi.fn(() => ({
     appendLine: vi.fn(),
     show: vi.fn(),
+    info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     log: true,

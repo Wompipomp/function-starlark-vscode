@@ -842,6 +842,39 @@ describe("config refresh: debounced path/registry handler", () => {
     expect(clientInstance.stop).toHaveBeenCalled();
     expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2);
   });
+
+  it("mixed path+registry changes debounce to single reinit", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const clientInstance = (LanguageClient as unknown as Mock).mock.instances[0];
+
+    // Fire schemas.path change at t=0
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Wait 200ms then fire schemas.registry change
+    await vi.advanceTimersByTimeAsync(200);
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.registry",
+    });
+
+    // Before debounce completes, no teardown
+    expect(clientInstance.stop).not.toHaveBeenCalled();
+
+    // Advance past 500ms from the registry event
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Only ONE teardown/reinit cycle should have fired
+    expect(clientInstance.stop).toHaveBeenCalledTimes(1);
+    expect(LanguageClient as unknown as Mock).toHaveBeenCalledTimes(2); // initial + 1 reinit
+  });
 });
 
 describe("config refresh: generation counter", () => {
@@ -952,6 +985,58 @@ describe("config refresh: generation counter", () => {
     expect(firstSchemaInstance.rebuild).not.toHaveBeenCalled();
 
     // Reset textDocuments
+    (vscode.workspace.textDocuments as unknown) = [];
+  });
+
+  it("logs discard message to output channel for stale downloads", async () => {
+    const { parseLoadStatements } = await import("./load-parser");
+    (parseLoadStatements as Mock).mockReturnValue([
+      { ociRef: "ghcr.io/wompipomp/test:v1", tarEntryPath: "test.star", namespaces: [] },
+    ]);
+
+    // Create a controllable OCI promise
+    let resolveOci!: () => void;
+    const ociPromise = new Promise<string>((resolve) => {
+      resolveOci = () => resolve("/cache/artifact");
+    });
+    const { OciDownloader: MockOci } = await import("./oci/downloader");
+    (MockOci as unknown as Mock).mockImplementation(
+      function (this: Record<string, unknown>) {
+        this.ensureArtifact = vi.fn().mockReturnValue(ociPromise);
+      },
+    );
+
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    (vscode.workspace.textDocuments as unknown) = [{
+      languageId: "starlark",
+      getText: () => 'load("oci://ghcr.io/wompipomp/test:v1/test.star", "foo")',
+      uri: { toString: () => "file:///test.star" },
+    }];
+
+    await activate(makeMockContext());
+
+    // Get the output channel mock
+    const outputCh = (vscode.window.createOutputChannel as Mock).mock.results[0].value;
+
+    // Trigger config change (increments generation)
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Resolve the old OCI download (stale generation)
+    resolveOci();
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks
+
+    // Should have logged the discard message
+    expect(outputCh.info).toHaveBeenCalledWith(
+      expect.stringContaining("Discarding download"),
+    );
+
     (vscode.workspace.textDocuments as unknown) = [];
   });
 });
@@ -1089,6 +1174,40 @@ describe("config refresh: status bar feedback", () => {
     // Should show error state
     expect(statusBar.text).toBe("$(warning) Starlark: Schema error");
     expect(statusBar.backgroundColor).toBeInstanceOf(vscode.ThemeColor);
+  });
+
+  it("logs error to output channel on reinit failure", async () => {
+    (vscode.workspace.getConfiguration as Mock).mockReturnValue(
+      makeConfig({ "schemas.enabled": true, "schemas.registry": "ghcr.io/wompipomp" }),
+    );
+
+    await activate(makeMockContext());
+
+    const outputCh = (vscode.window.createOutputChannel as Mock).mock.results[0].value;
+
+    // Make the NEXT LanguageClient instance's start() reject
+    const origMockImpl = (LanguageClient as unknown as Mock).getMockImplementation()!;
+    (LanguageClient as unknown as Mock).mockImplementationOnce(
+      function (this: Record<string, unknown>, ...args: unknown[]) {
+        origMockImpl.apply(this, args);
+        (this.start as Mock).mockRejectedValueOnce(new Error("Simulated LSP failure"));
+      },
+    );
+
+    // Trigger config change
+    configChangeHandler({
+      affectsConfiguration: (s: string) =>
+        s === "functionStarlark.schemas.path",
+    });
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Should have logged error to output channel
+    expect(outputCh.error).toHaveBeenCalledWith(
+      "Schema reinit failed",
+      expect.any(Error),
+    );
   });
 
   it("resets backgroundColor to undefined on success", async () => {
