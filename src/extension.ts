@@ -20,6 +20,7 @@ import { SchemaIndex } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, clearAllDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { TypeWarningProvider } from "./type-warning-provider";
+import { MissingFieldQuickFixProvider } from "./missing-field-fix";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 
 let client: LanguageClient | undefined;
@@ -32,6 +33,7 @@ let schemaIndex: SchemaIndex | undefined;
 let downloader: OciDownloader | undefined;
 let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
 let typeWarningProvider: TypeWarningProvider | undefined;
+let missingFieldFixProvider: MissingFieldQuickFixProvider | undefined;
 let typeCheckTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaDisposables: vscode.Disposable[] = [];
 let configDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -437,6 +439,15 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   typeWarningProvider = new TypeWarningProvider(currentSchemaIndex);
   schemaDisposables.push(typeWarningProvider);
 
+  // Quick fix provider for missing required fields
+  missingFieldFixProvider = new MissingFieldQuickFixProvider(currentSchemaIndex);
+  const missingFieldFixReg = vscode.languages.registerCodeActionsProvider(
+    { scheme: "file", language: "starlark" },
+    missingFieldFixProvider,
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+  );
+  schemaDisposables.push(missingFieldFixReg);
+
   // Debounced onDidChangeTextDocument handler for real-time type checking
   const typeCheckChangeHandler = vscode.workspace.onDidChangeTextDocument((e) => {
     if (e.document.languageId !== "starlark") return;
@@ -471,6 +482,7 @@ function teardownSchemaSubsystem(): void {
   diagnosticProvider?.dispose();
   diagnosticProvider = undefined;
   typeWarningProvider = undefined; // disposal handled by schemaDisposables loop
+  missingFieldFixProvider = undefined;
   schemaIndex = undefined;
   downloader = undefined;
   for (const d of schemaDisposables) {
