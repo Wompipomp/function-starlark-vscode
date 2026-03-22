@@ -199,7 +199,7 @@ describe("MissingFieldQuickFixProvider", () => {
     const snippetValue = snippetEdit.snippet.value;
 
     // string field: "cursor-inside-quotes" pattern -> appendText('"') + appendTabstop + appendText('"')
-    expect(snippetValue).toContain('name = \\"$1\\"');
+    expect(snippetValue).toContain('name = "$1"');
     // int field: appendPlaceholder("0")
     expect(snippetValue).toContain("replicas = ${2:0}");
     // bool field: appendPlaceholder("False")
@@ -232,14 +232,14 @@ describe("MissingFieldQuickFixProvider", () => {
     const snippetValue = snippetEdit.snippet.value;
 
     // Each field line: \n    fieldName = value,
-    // The escaped \n in SnippetString.appendText would be literal \n
-    expect(snippetValue).toContain("\\n    name = ");
-    expect(snippetValue).toContain("\\n    location = ");
+    // Real newline character in snippet value
+    expect(snippetValue).toContain("\n    name = ");
+    expect(snippetValue).toContain("\n    location = ");
     // Trailing commas
-    expect(snippetValue).toMatch(/name = \\"[^"]*\\",/);
-    expect(snippetValue).toMatch(/location = \\"[^"]*\\",/);
+    expect(snippetValue).toMatch(/name = "[^"]*",/);
+    expect(snippetValue).toMatch(/location = "[^"]*",/);
     // Final newline for closing paren alignment
-    expect(snippetValue).toMatch(/,\\n$/);
+    expect(snippetValue).toMatch(/,\n$/);
   });
 
   it("empty constructor Account() -- no leading comma needed", () => {
@@ -264,7 +264,7 @@ describe("MissingFieldQuickFixProvider", () => {
 
     // No leading comma
     expect(snippetValue).not.toMatch(/^,/);
-    expect(snippetValue).toMatch(/^\\n/);
+    expect(snippetValue).toMatch(/^\n/);
   });
 
   it('constructor with existing args Account(name="x") -- adds comma if last arg has no trailing comma', () => {
