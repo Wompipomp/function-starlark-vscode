@@ -15,8 +15,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Syntax highlighting, build pipeline, and .vsix packaging
 - [x] **Phase 2: LSP Core** - Builtin autocomplete, hover docs, signature help, and error handling (completed 2026-03-21)
 - [x] **Phase 3: Buildifier** - Format-on-save integration with buildifier (completed 2026-03-21)
-- [ ] **Phase 4: Schema IntelliSense** - Typed autocomplete for schema constructors from generated .star files
-- [ ] **Phase 5: OCI Auto-Download & Load Scoping** - Automatic OCI schema download and per-file load() completion scoping
+- [x] **Phase 4: Schema IntelliSense** - Typed autocomplete for schema constructors from generated .star files (completed 2026-03-21)
+- [x] **Phase 5: OCI Auto-Download & Load Scoping** - Automatic OCI schema download and per-file load() completion scoping (completed 2026-03-21)
+- [ ] **Phase 6: Extension Polish** - Command palette fix, schemas.enabled runtime toggle, schema watcher gating
 
 ## Phase Details
 
@@ -129,7 +130,7 @@ Plans:
 - [x] 05-02-PLAN.md -- OCI Distribution API client with token auth, download orchestrator with cache/extraction/dedup
 - [x] 05-03-PLAN.md -- Schema symbol index from cached files, LanguageClient middleware for per-file completion/hover/signatureHelp filtering
 - [x] 05-04-PLAN.md -- Missing-import diagnostics with quick-fix, extension wiring, package.json settings/commands
-- [ ] 05-05-PLAN.md -- Gap closure: fix star import path key mismatch in middleware and diagnostics
+- [x] 05-05-PLAN.md -- Gap closure: fix star import path key mismatch in middleware and diagnostics
 
 **Research flags:**
 - OCI Distribution Spec: Two HTTP calls (manifest + blob) with Bearer token auth challenge-response
@@ -140,15 +141,33 @@ Plans:
 
 ---
 
+### Phase 6: Extension Polish
+**Goal**: Fix integration gaps found by milestone audit — Command Palette discoverability, schemas.enabled runtime toggle, and schema watcher gating
+**Depends on**: Phase 5
+**Requirements**: R2, R7.6
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `functionStarlark.showOutput` appears in VSCode Command Palette
+  2. Toggling `schemas.enabled` from true->false at runtime tears down schema subsystem (disposes watcher, clears index, removes middleware)
+  3. Toggling `schemas.enabled` from false->true at runtime initializes schema subsystem without extension reload
+  4. `setupSchemaWatcher` is not called when `schemas.enabled` is false
+**Plans**: 1 plan
+
+Plans:
+- [ ] 06-01-PLAN.md -- Schema subsystem lifecycle (init/teardown), startLsp gating, showOutput command palette fix, full test coverage
+
+---
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-21 |
-| 2. LSP Core | 2/2 | Complete   | 2026-03-21 |
+| 2. LSP Core | 2/2 | Complete | 2026-03-21 |
 | 3. Buildifier | 1/1 | Complete | 2026-03-21 |
-| 4. Schema IntelliSense | 0/2 | Not started | - |
-| 5. OCI Auto-Download & Load Scoping | 4/5 | In Progress | - |
+| 4. Schema IntelliSense | 2/2 | Complete | 2026-03-21 |
+| 5. OCI Auto-Download & Load Scoping | 5/5 | Complete | 2026-03-21 |
+| 6. Extension Polish | 0/1 | Not started | - |

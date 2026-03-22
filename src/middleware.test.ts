@@ -5,6 +5,7 @@ import {
   createScopingMiddleware,
   updateDocumentImports,
   clearDocumentImports,
+  clearAllDocumentImports,
 } from "./middleware";
 import type { SchemaIndex } from "./schema-index";
 import { BUILTIN_NAMES } from "./schema-index";
@@ -504,5 +505,52 @@ describe("createScopingMiddleware", () => {
       expect(result).toEqual(sigHelp);
       expect(next).toHaveBeenCalled();
     });
+  });
+});
+
+describe("clearAllDocumentImports", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    clearDocumentImports("test://file1.star");
+    clearDocumentImports("test://file2.star");
+  });
+
+  it("clears the entire documentImportsCache so subsequent calls recompute", () => {
+    const index = createMockSchemaIndex({
+      "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+    });
+
+    // Populate cache for two URIs
+    mockedParseLoadStatements.mockReturnValue([
+      {
+        ociRef: "schemas-k8s:v1.31",
+        tarEntryPath: "apps/v1.star",
+        symbols: ["Deployment"],
+        namespaces: [],
+        fullPath: "schemas-k8s:v1.31/apps/v1.star",
+      },
+    ]);
+    updateDocumentImports("test://file1.star", "load stmt 1", index);
+    updateDocumentImports("test://file2.star", "load stmt 2", index);
+
+    // Both should have Deployment
+    expect(getAllowedSymbols("test://file1.star", "load stmt 1", index).has("Deployment")).toBe(true);
+    expect(getAllowedSymbols("test://file2.star", "load stmt 2", index).has("Deployment")).toBe(true);
+
+    // Clear all caches
+    clearAllDocumentImports();
+
+    // Now mock returns no load statements (simulating cache cleared for disabled schemas)
+    mockedParseLoadStatements.mockReturnValue([]);
+
+    // Cache miss forces recompute with no loads -> only builtins
+    const allowed1 = getAllowedSymbols("test://file1.star", "# no loads", index);
+    const allowed2 = getAllowedSymbols("test://file2.star", "# no loads", index);
+    expect(allowed1.has("Deployment")).toBe(false);
+    expect(allowed2.has("Deployment")).toBe(false);
+
+    // Should only contain builtins
+    expect(allowed1).toEqual(BUILTIN_NAMES);
+    expect(allowed2).toEqual(BUILTIN_NAMES);
   });
 });

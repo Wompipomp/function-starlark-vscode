@@ -120,9 +120,14 @@ Typed autocomplete and validation for schema constructors loaded from generated 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | R1: Syntax Highlighting | Phase 1 | Complete |
-| R2: Language Server Integration | Phase 2 | Pending |
-| R3: Builtin Stubs (R3.1, R3.2) | Phase 2 | Pending |
-| R4: Error Handling | Phase 2 | Pending |
+| R2: Language Server Integration | Phase 2, Phase 6 | Complete (showOutput command palette fix in Phase 6) |
+| R3: Builtin Stubs (R3.1, R3.2) | Phase 2 | Complete |
+| R4: Error Handling | Phase 2 | Complete |
 | R5: Extension Packaging | Phase 1 | Complete |
 | R6: Buildifier Integration | Phase 3 | Complete |
-| R7: Schema IntelliSense (R7.1-R7.6) | Phase 4 | Complete (R7.2-R7.4 via starlark-lsp, R7.6 via extension) |
+| R7.1: Load Statement Resolution | Phase 5 | Complete |
+| R7.2: Schema Constructor Autocomplete | Phase 4, Phase 5 | Complete |
+| R7.3: Schema Hover Documentation | Phase 4, Phase 5 | Complete |
+| R7.4: Schema Signature Help | Phase 4, Phase 5 | Complete |
+| R7.5: Schema Type Warnings | — | Deferred to future milestone |
+| R7.6: Schema Cache Management | Phase 4, Phase 5, Phase 6 | Complete (schemas.enabled toggle fix in Phase 6) |
