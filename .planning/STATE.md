@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: milestone
 status: completed
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-03-21T19:52:02.051Z"
-last_activity: 2026-03-21 -- Completed 05-05 star import path fix (gap closure)
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-22T12:00:04.000Z"
+last_activity: 2026-03-22 -- Completed 06-01 extension polish (schema lifecycle, showOutput, startLsp gating)
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 12
-  completed_plans: 12
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 13
+  completed_plans: 13
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Install the extension, open a .star file, get autocomplete and hover docs for all function-starlark builtins immediately.
-**Current focus:** Phase 5: OCI Auto-Download & Load Scoping
+**Current focus:** Phase 6: Extension Polish (Complete)
 
 ## Current Position
 
-Phase: 5 of 5 (OCI Auto-Download & Load Scoping)
-Plan: 5 of 5 in current phase (Plan 05 complete)
-Status: Phase 05 Complete -- All plans delivered (including gap closure)
-Last activity: 2026-03-21 -- Completed 05-05 star import path fix (gap closure)
+Phase: 6 of 6 (Extension Polish)
+Plan: 1 of 1 in current phase (Plan 01 complete)
+Status: Phase 06 Complete -- All plans delivered
+Last activity: 2026-03-22 -- Completed 06-01 extension polish (schema lifecycle, showOutput, startLsp gating)
 
 Progress: [██████████] 100%
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 05 P04 | 7min | 2 tasks | 8 files |
 | Phase 05 P05 | 2min | 2 tasks | 4 files |
 | Phase 05 P05 | 2min | 2 tasks | 4 files |
+| Phase 06 P01 | 4min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -99,10 +100,15 @@ Recent decisions affecting current work:
 - [Phase 05]: Reverse index in SchemaIndex for O(1) symbol-to-file lookup in quick-fix code actions
 - [Phase 05]: schemas.enabled gate conditionally initializes all schema features
 - [Phase 05]: Full cache-relative path built via ociRef.replace(':', '/') + '/' + tarEntryPath to match SchemaIndex.walkDir() keys
+- [Phase 06]: showOutput command always visible (no when clause), category 'Function Starlark'
+- [Phase 06]: schemas.enabled toggle stops+recreates LSP client because --builtin-paths args change
+- [Phase 06]: Silent teardown on disable -- cached files kept on disk, only runtime objects cleaned up
+- [Phase 06]: schemaDisposables array tracks subsystem-specific disposables for targeted teardown
 
 ### Roadmap Evolution
 
 - Phase 5 added: OCI auto-download and per-file load() scoping for schema IntelliSense
+- Phase 6 added: Extension polish -- schema lifecycle, showOutput command, startLsp gating
 
 ### Pending Todos
 
@@ -114,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T19:51:53.946Z
-Stopped at: Completed 05-05-PLAN.md
-Resume file: None
+Last session: 2026-03-22T12:00:04.000Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: .planning/phases/06-extension-polish/06-01-SUMMARY.md

@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Buildifier** - Format-on-save integration with buildifier (completed 2026-03-21)
 - [x] **Phase 4: Schema IntelliSense** - Typed autocomplete for schema constructors from generated .star files (completed 2026-03-21)
 - [x] **Phase 5: OCI Auto-Download & Load Scoping** - Automatic OCI schema download and per-file load() completion scoping (completed 2026-03-21)
-- [ ] **Phase 6: Extension Polish** - Command palette fix, schemas.enabled runtime toggle, schema watcher gating
+- [x] **Phase 6: Extension Polish** - Command palette fix, schemas.enabled runtime toggle, schema watcher gating (completed 2026-03-22)
 
 ## Phase Details
 
@@ -100,8 +100,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- Schema builtins (schema/field stubs in builtins.py), schemas.path setting, vscode mock extensions for testing
-- [ ] 04-02-PLAN.md -- Schema cache integration: dual --builtin-paths in startLsp(), debounced FileSystemWatcher, schemas.path config change handling, unit tests
+- [x] 04-01-PLAN.md -- Schema builtins (schema/field stubs in builtins.py), schemas.path setting, vscode mock extensions for testing
+- [x] 04-02-PLAN.md -- Schema cache integration: dual --builtin-paths in startLsp(), debounced FileSystemWatcher, schemas.path config change handling, unit tests
 
 **Research flags:**
 - starlark-lsp only processes .py files (not .star) -- schema cache must contain .py files
@@ -154,7 +154,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md -- Schema subsystem lifecycle (init/teardown), startLsp gating, showOutput command palette fix, full test coverage
+- [x] 06-01-PLAN.md -- Schema subsystem lifecycle (init/teardown), startLsp gating, showOutput command palette fix, full test coverage
 
 ---
 
@@ -170,4 +170,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Buildifier | 1/1 | Complete | 2026-03-21 |
 | 4. Schema IntelliSense | 2/2 | Complete | 2026-03-21 |
 | 5. OCI Auto-Download & Load Scoping | 5/5 | Complete | 2026-03-21 |
-| 6. Extension Polish | 0/1 | Not started | - |
+| 6. Extension Polish | 1/1 | Complete | 2026-03-22 |
