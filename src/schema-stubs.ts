@@ -12,14 +12,14 @@
 import * as fs from "fs";
 import * as path from "path";
 
-interface ParsedField {
+export interface ParsedField {
   name: string;
   type: string;
   required: boolean;
   doc: string;
 }
 
-interface ParsedSchema {
+export interface ParsedSchema {
   name: string;
   doc: string;
   fields: ParsedField[];
@@ -70,7 +70,7 @@ function isRequired(fieldText: string): boolean {
 /**
  * Find the matching closing paren for an opening paren, handling nesting.
  */
-function findMatchingParen(text: string, openIdx: number): number {
+export function findMatchingParen(text: string, openIdx: number): number {
   let depth = 1;
   let i = openIdx + 1;
   let inString = false;
