@@ -160,6 +160,64 @@ function offsetToLineChar(
   return { line, char: offset - lineStart };
 }
 
+/** Detected literal type, or null if the value is a variable/expression. */
+type LiteralType = "string" | "int" | "bool" | "None" | null;
+
+/**
+ * Detect the literal type of a value string.
+ * Returns null for variables, expressions, and function calls.
+ */
+function detectLiteralType(valueText: string): LiteralType {
+  const trimmed = valueText.trim();
+
+  // String literals: "...", '...', """...""", '''...'''
+  if (/^["']/.test(trimmed)) return "string";
+
+  // Boolean literals: exactly True or False
+  if (trimmed === "True" || trimmed === "False") return "bool";
+
+  // None literal
+  if (trimmed === "None") return "None";
+
+  // Integer literals: decimal, hex, octal
+  if (/^-?\d+$/.test(trimmed) || /^0[xXoO][\da-fA-F]+$/.test(trimmed))
+    return "int";
+
+  // Everything else: variable, expression, function call -- skip
+  return null;
+}
+
+/**
+ * Check if a literal type is compatible with a field's declared type.
+ * Returns true if compatible or if we can't determine compatibility.
+ */
+function isTypeCompatible(
+  fieldType: string,
+  literalType: LiteralType,
+): boolean {
+  if (literalType === null) return true; // Skip non-literals
+
+  // Primitive type fields
+  const primitiveMap: Record<string, string> = {
+    string: "string",
+    int: "int",
+    bool: "bool",
+  };
+
+  if (fieldType in primitiveMap) {
+    return primitiveMap[fieldType] === literalType;
+  }
+
+  // Schema-typed fields (PascalCase like ObjectMeta, LabelSelector)
+  // Any literal is wrong for a schema-typed field
+  if (/^[A-Z]/.test(fieldType)) {
+    return false;
+  }
+
+  // Empty type or unknown type -- can't check, allow anything
+  return true;
+}
+
 /**
  * Check all schema constructor calls in the document text.
  *
@@ -211,12 +269,14 @@ export function checkDocument(
     const kwArgs = parseKeywordArgs(argBody, bodyStartOffset);
     const providedFields = new Set(kwArgs.map((a) => a.name));
 
+    // Build field lookup map
+    const fieldMap = new Map(schema.fields.map((f) => [f.name, f]));
+
     // Compute squiggle range for the constructor symbol name
     // For namespace-qualified: "storage.Account(" -> squiggle on "Account" only
     const symbolStartOffset = nsPrefix
       ? match.index + nsPrefix.length + 1 // skip "prefix."
       : match.index;
-    const symbolEndOffset = symbolStartOffset + symbolName.length;
 
     // Check for missing required fields
     for (const field of schema.fields) {
@@ -228,6 +288,41 @@ export function checkDocument(
           endChar: pos.char + symbolName.length,
           message: `Missing required field "${field.name}" in ${symbolName}()`,
           kind: "missing-field",
+        });
+      }
+    }
+
+    // Check each keyword argument for type mismatches and unknown fields
+    for (const arg of kwArgs) {
+      const field = fieldMap.get(arg.name);
+
+      if (!field) {
+        // Unknown field
+        const pos = offsetToLineChar(text, arg.nameOffset);
+        diagnostics.push({
+          line: pos.line,
+          startChar: pos.char,
+          endChar: pos.char + arg.name.length,
+          message: `Unknown field "${arg.name}" in ${symbolName}()`,
+          kind: "unknown-field",
+        });
+        continue;
+      }
+
+      // Type mismatch checking
+      if (!field.type) continue; // No type info, skip
+
+      const literalType = detectLiteralType(arg.valueText);
+      if (!isTypeCompatible(field.type, literalType)) {
+        const pos = offsetToLineChar(text, arg.valueOffset);
+        // Compute the trimmed value length for the squiggle
+        const trimmedValue = arg.valueText.trim();
+        diagnostics.push({
+          line: pos.line,
+          startChar: pos.char,
+          endChar: pos.char + trimmedValue.length,
+          message: `Field "${arg.name}" expects ${field.type}, got ${literalType}`,
+          kind: "type-mismatch",
         });
       }
     }

@@ -215,9 +215,9 @@ describe("checkDocument - type mismatch", () => {
     const mismatch = diags.filter((d) => d.kind === "type-mismatch");
 
     expect(mismatch).toHaveLength(1);
-    // "Account(name=" is 14 chars, "42" starts at 14, ends at 16
-    expect(mismatch[0].startChar).toBe(14);
-    expect(mismatch[0].endChar).toBe(16);
+    // "Account(name=" is 13 chars to value start, "42" starts at 13, ends at 15
+    expect(mismatch[0].startChar).toBe(13);
+    expect(mismatch[0].endChar).toBe(15);
   });
 });
 
