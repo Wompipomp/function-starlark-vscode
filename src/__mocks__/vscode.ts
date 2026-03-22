@@ -25,6 +25,7 @@ export const workspace = {
   onDidChangeConfiguration: vi.fn(),
   onDidOpenTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
   onDidSaveTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
+  onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
   onDidCloseTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
   textDocuments: [] as unknown[],
 };
