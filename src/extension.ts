@@ -17,7 +17,7 @@ import { BuildifierFormatProvider } from "./buildifier";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { OciDownloader } from "./oci/downloader";
 import { SchemaIndex } from "./schema-index";
-import { createScopingMiddleware, updateDocumentImports, clearDocumentImports } from "./middleware";
+import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, clearAllDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 
@@ -30,6 +30,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaIndex: SchemaIndex | undefined;
 let downloader: OciDownloader | undefined;
 let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
+let schemaDisposables: vscode.Disposable[] = [];
 
 export function getSchemaCachePath(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("functionStarlark");
@@ -251,21 +252,21 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   }
 
   const builtinsPath = path.join(context.extensionPath, "starlark", "builtins.py");
-  const schemaDir = getSchemaCachePath(context);
-  fs.mkdirSync(schemaDir, { recursive: true });
+  const args = ["start", "--builtin-paths", builtinsPath];
 
-  // Create __init__.py for flat schema stubs — starlark-lsp treats this as
-  // root-level (global) builtins when the directory is passed as --builtin-paths.
-  // Namespace modules (k8s.py) become k8s.Deployment() in the same directory.
-  const initPath = path.join(schemaDir, "__init__.py");
-  if (!fs.existsSync(initPath)) {
-    fs.writeFileSync(initPath, "# auto-generated schema stubs\n", "utf-8");
+  if (config.get<boolean>("schemas.enabled", true)) {
+    const schemaDir = getSchemaCachePath(context);
+    fs.mkdirSync(schemaDir, { recursive: true });
+
+    // Create __init__.py for flat schema stubs — starlark-lsp treats this as
+    // root-level (global) builtins when the directory is passed as --builtin-paths.
+    // Namespace modules (k8s.py) become k8s.Deployment() in the same directory.
+    const initPath = path.join(schemaDir, "__init__.py");
+    if (!fs.existsSync(initPath)) {
+      fs.writeFileSync(initPath, "# auto-generated schema stubs\n", "utf-8");
+    }
+    args.push("--builtin-paths", schemaDir);
   }
-  const args = [
-    "start",
-    "--builtin-paths", builtinsPath,
-    "--builtin-paths", schemaDir,
-  ];
 
   const serverOptions: ServerOptions = {
     command: lspPath,
@@ -353,6 +354,89 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
   context.subscriptions.push(client);
 }
 
+function initSchemaSubsystem(context: vscode.ExtensionContext): void {
+  const cacheDir = getSchemaCachePath(context);
+  const config = vscode.workspace.getConfiguration("functionStarlark");
+  const registry = config.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
+
+  schemaIndex = new SchemaIndex();
+  schemaIndex.buildFromCache(cacheDir);
+  downloader = new OciDownloader(cacheDir, registry, outputChannel);
+  generateStubFile(cacheDir);
+  schemaWatcher = setupSchemaWatcher(context);
+
+  const currentSchemaIndex = schemaIndex;
+  const currentDownloader = downloader;
+
+  async function handleDocumentForSchemas(document: vscode.TextDocument) {
+    if (document.languageId !== "starlark" || !currentDownloader || !currentSchemaIndex) return;
+    const text = document.getText();
+    const loads = parseLoadStatements(text);
+
+    for (const load of loads) {
+      if (statusBarItem) {
+        statusBarItem.text = `$(sync~spin) Starlark: pulling ${load.ociRef}...`;
+      }
+      currentDownloader.ensureArtifact(load.ociRef).then(() => {
+        const dir = getSchemaCachePath(context);
+        currentSchemaIndex.rebuild(dir);
+        generateStubFile(dir);
+        const nsFiles = collectNamespaceFiles(context);
+        if (nsFiles.size > 0) {
+          generateNamespaceStubs(dir, nsFiles);
+        }
+        updateDocumentImports(document.uri.toString(), text, currentSchemaIndex);
+        diagnosticProvider?.updateDiagnostics(document);
+        if (statusBarItem) {
+          statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
+        }
+      }).catch(() => {
+        if (statusBarItem) {
+          statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
+        }
+      });
+    }
+
+    updateDocumentImports(document.uri.toString(), text, currentSchemaIndex);
+    diagnosticProvider?.updateDiagnostics(document);
+  }
+
+  const openHandler = vscode.workspace.onDidOpenTextDocument(handleDocumentForSchemas);
+  const saveHandler = vscode.workspace.onDidSaveTextDocument(handleDocumentForSchemas);
+  const closeHandler = vscode.workspace.onDidCloseTextDocument((doc) => {
+    clearDocumentImports(doc.uri.toString());
+  });
+  schemaDisposables.push(openHandler, saveHandler, closeHandler);
+
+  const diagCollection = vscode.languages.createDiagnosticCollection("functionStarlark");
+  diagnosticProvider = new MissingImportDiagnosticProvider(currentSchemaIndex, diagCollection);
+  const codeActionReg = vscode.languages.registerCodeActionsProvider(
+    { scheme: "file", language: "starlark" },
+    diagnosticProvider,
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+  );
+  schemaDisposables.push(diagCollection, codeActionReg);
+
+  // Scan all currently open starlark documents
+  vscode.workspace.textDocuments
+    .filter((d) => d.languageId === "starlark")
+    .forEach(handleDocumentForSchemas);
+}
+
+function teardownSchemaSubsystem(): void {
+  schemaWatcher?.dispose();
+  schemaWatcher = undefined;
+  diagnosticProvider?.dispose();
+  diagnosticProvider = undefined;
+  schemaIndex = undefined;
+  downloader = undefined;
+  for (const d of schemaDisposables) {
+    d.dispose();
+  }
+  schemaDisposables = [];
+  clearAllDocumentImports();
+}
+
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
@@ -412,6 +496,22 @@ export async function activate(
         return;
       }
 
+      if (e.affectsConfiguration("functionStarlark.schemas.enabled")) {
+        const cfg = vscode.workspace.getConfiguration("functionStarlark");
+        const enabled = cfg.get<boolean>("schemas.enabled", true);
+        if (!enabled) {
+          teardownSchemaSubsystem();
+        } else {
+          initSchemaSubsystem(context);
+        }
+        if (client) {
+          await client.stop();
+          client = undefined;
+        }
+        await startLsp(context);
+        return;
+      }
+
       if (e.affectsConfiguration("functionStarlark.schemas.path")) {
         schemaWatcher?.dispose();
         if (client) {
@@ -455,79 +555,10 @@ export async function activate(
   // Initialize schema modules when enabled
   const config = vscode.workspace.getConfiguration("functionStarlark");
   if (config.get<boolean>("schemas.enabled", true)) {
-    const cacheDir = getSchemaCachePath(context);
-    const registry = config.get<string>("schemas.registry", "ghcr.io/wompipomp")!;
-    schemaIndex = new SchemaIndex();
-    schemaIndex.buildFromCache(cacheDir);
-    downloader = new OciDownloader(cacheDir, registry, outputChannel);
-    // Ensure stub file exists for any previously cached schemas
-    generateStubFile(cacheDir);
+    initSchemaSubsystem(context);
   }
 
   await startLsp(context);
-  schemaWatcher = setupSchemaWatcher(context);
-
-  // Register document open/save/close handlers for schema integration
-  if (schemaIndex) {
-    async function handleDocumentForSchemas(document: vscode.TextDocument) {
-      if (document.languageId !== "starlark" || !downloader || !schemaIndex) return;
-      const text = document.getText();
-      const loads = parseLoadStatements(text);
-
-      // Trigger downloads for uncached OCI refs
-      for (const load of loads) {
-        if (statusBarItem) {
-          statusBarItem.text = `$(sync~spin) Starlark: pulling ${load.ociRef}...`;
-        }
-        downloader.ensureArtifact(load.ociRef).then(() => {
-          const cacheDir = getSchemaCachePath(context);
-          schemaIndex!.rebuild(cacheDir);
-          // Generate flat stub file for direct imports
-          generateStubFile(cacheDir);
-          // Generate namespace module stubs from load statements in all open documents
-          const nsFiles = collectNamespaceFiles(context);
-          if (nsFiles.size > 0) {
-            generateNamespaceStubs(cacheDir, nsFiles);
-          }
-          updateDocumentImports(document.uri.toString(), text, schemaIndex!);
-          diagnosticProvider?.updateDiagnostics(document);
-          if (statusBarItem) {
-            statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
-          }
-        }).catch(() => {
-          // Download failure logged by downloader
-          if (statusBarItem) {
-            statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
-          }
-        });
-      }
-
-      // Update document imports cache for middleware filtering
-      updateDocumentImports(document.uri.toString(), text, schemaIndex!);
-      // Update diagnostics
-      diagnosticProvider?.updateDiagnostics(document);
-    }
-
-    context.subscriptions.push(
-      vscode.workspace.onDidOpenTextDocument(handleDocumentForSchemas),
-      vscode.workspace.onDidSaveTextDocument(handleDocumentForSchemas),
-      vscode.workspace.onDidCloseTextDocument((doc) => {
-        clearDocumentImports(doc.uri.toString());
-      }),
-    );
-
-    // Register diagnostics provider
-    const diagCollection = vscode.languages.createDiagnosticCollection("functionStarlark");
-    diagnosticProvider = new MissingImportDiagnosticProvider(schemaIndex, diagCollection);
-    context.subscriptions.push(diagCollection);
-    context.subscriptions.push(
-      vscode.languages.registerCodeActionsProvider(
-        { scheme: "file", language: "starlark" },
-        diagnosticProvider,
-        { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
-      ),
-    );
-  }
 
   // Register Clear Schema Cache command
   context.subscriptions.push(

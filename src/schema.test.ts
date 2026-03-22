@@ -492,9 +492,12 @@ describe("Phase 5 integration", () => {
 });
 
 describe("showOutput command in package.json", () => {
-  it("has functionStarlark.showOutput in contributes.commands", async () => {
-    const pkgRaw = await fs.promises.readFile(
-      require("path").resolve(__dirname, "..", "package.json"),
+  it("has functionStarlark.showOutput in contributes.commands", () => {
+    // Use actual fs.readFileSync to bypass the vi.mock("fs") in this test file
+    const actualFs = require("node:fs") as typeof import("fs");
+    const actualPath = require("node:path") as typeof import("path");
+    const pkgRaw = actualFs.readFileSync(
+      actualPath.resolve(__dirname, "..", "package.json"),
       "utf-8",
     );
     const pkg = JSON.parse(pkgRaw);
