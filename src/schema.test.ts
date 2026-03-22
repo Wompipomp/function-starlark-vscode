@@ -36,6 +36,10 @@ vi.mock("./schema-index", () => {
 });
 vi.mock("./middleware", () => ({
   createScopingMiddleware: vi.fn().mockReturnValue({}),
+  getDocumentImports: vi.fn().mockReturnValue({
+    allowed: new Set<string>(),
+    namespaces: new Map<string, Set<string>>(),
+  }),
   updateDocumentImports: vi.fn(),
   clearDocumentImports: vi.fn(),
   clearAllDocumentImports: vi.fn(),
@@ -49,6 +53,15 @@ vi.mock("./diagnostics", () => {
     },
   );
   return { MissingImportDiagnosticProvider: MockProvider };
+});
+vi.mock("./type-warning-provider", () => {
+  const MockProvider = vi.fn().mockImplementation(
+    function (this: Record<string, unknown>) {
+      this.updateDiagnostics = vi.fn();
+      this.dispose = vi.fn();
+    },
+  );
+  return { TypeWarningProvider: MockProvider };
 });
 
 let capturedServerOptions: { args: string[] } | undefined;

@@ -19,6 +19,7 @@ import { OciDownloader } from "./oci/downloader";
 import { SchemaIndex } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, clearAllDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
+import { TypeWarningProvider } from "./type-warning-provider";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 
 let client: LanguageClient | undefined;
@@ -30,6 +31,8 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaIndex: SchemaIndex | undefined;
 let downloader: OciDownloader | undefined;
 let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
+let typeWarningProvider: TypeWarningProvider | undefined;
+let typeCheckTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaDisposables: vscode.Disposable[] = [];
 let configDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaGeneration = 0;
@@ -398,6 +401,7 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
         }
         updateDocumentImports(document.uri.toString(), text, currentSchemaIndex);
         diagnosticProvider?.updateDiagnostics(document);
+        typeWarningProvider?.updateDiagnostics(document);
         if (statusBarItem) {
           statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
         }
@@ -410,6 +414,7 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
 
     updateDocumentImports(document.uri.toString(), text, currentSchemaIndex);
     diagnosticProvider?.updateDiagnostics(document);
+    typeWarningProvider?.updateDiagnostics(document);
   }
 
   const openHandler = vscode.workspace.onDidOpenTextDocument(handleDocumentForSchemas);
@@ -428,6 +433,28 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   );
   schemaDisposables.push(diagCollection, codeActionReg);
 
+  // Type warning provider — separate DiagnosticCollection for type-checking warnings
+  typeWarningProvider = new TypeWarningProvider(currentSchemaIndex);
+  schemaDisposables.push(typeWarningProvider);
+
+  // Debounced onDidChangeTextDocument handler for real-time type checking
+  const typeCheckChangeHandler = vscode.workspace.onDidChangeTextDocument((e) => {
+    if (e.document.languageId !== "starlark") return;
+    if (typeCheckTimer) clearTimeout(typeCheckTimer);
+    typeCheckTimer = setTimeout(() => {
+      typeCheckTimer = undefined;
+      typeWarningProvider?.updateDiagnostics(e.document);
+    }, 500);
+  });
+  schemaDisposables.push(typeCheckChangeHandler);
+
+  // Immediate type checking on document open
+  const typeCheckOpenHandler = vscode.workspace.onDidOpenTextDocument((doc) => {
+    if (doc.languageId !== "starlark") return;
+    typeWarningProvider?.updateDiagnostics(doc);
+  });
+  schemaDisposables.push(typeCheckOpenHandler);
+
   // Scan all currently open starlark documents
   vscode.workspace.textDocuments
     .filter((d) => d.languageId === "starlark")
@@ -435,10 +462,15 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
 }
 
 function teardownSchemaSubsystem(): void {
+  if (typeCheckTimer) {
+    clearTimeout(typeCheckTimer);
+    typeCheckTimer = undefined;
+  }
   schemaWatcher?.dispose();
   schemaWatcher = undefined;
   diagnosticProvider?.dispose();
   diagnosticProvider = undefined;
+  typeWarningProvider = undefined; // disposal handled by schemaDisposables loop
   schemaIndex = undefined;
   downloader = undefined;
   for (const d of schemaDisposables) {
