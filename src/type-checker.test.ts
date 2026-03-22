@@ -195,15 +195,25 @@ describe("checkDocument - type mismatch", () => {
     expect(mismatch).toHaveLength(2);
   });
 
-  it("detects None literal for type mismatch", () => {
+  it("detects None literal for type mismatch on required fields", () => {
+    const text = `Account(name=None, location="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].message).toBe('Field "name" expects string, got None');
+  });
+
+  it("allows None for optional fields without type mismatch", () => {
     const text = `Deployment(name="web", replicas=None)`;
     const imported = new Set(["Deployment"]);
     const ns = new Map<string, Set<string>>();
 
     const diags = checkDocument(text, imported, ns, getMetadata);
     const mismatch = diags.filter((d) => d.kind === "type-mismatch");
-    expect(mismatch).toHaveLength(1);
-    expect(mismatch[0].message).toBe('Field "replicas" expects int, got None');
+    expect(mismatch).toHaveLength(0);
   });
 
   it("squiggle covers the offending value, not the field name", () => {
@@ -287,5 +297,37 @@ describe("checkDocument - unknown field", () => {
     expect(missing[0].message).toBe(
       'Missing required field "location" in Account()',
     );
+  });
+});
+
+describe("checkDocument - string and comment masking", () => {
+  it("ignores constructor-like patterns inside string literals", () => {
+    const text = `x = "Account(name=42)"\nAccount(name="foo", location="bar")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    // Only the real call on line 1 should be checked, not the string content
+    expect(diags.filter((d) => d.kind === "type-mismatch")).toHaveLength(0);
+    expect(diags.filter((d) => d.kind === "missing-field")).toHaveLength(0);
+  });
+
+  it("ignores constructor-like patterns inside comments", () => {
+    const text = `# Account()\nAccount(name="foo", location="bar")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    expect(diags.filter((d) => d.kind === "missing-field")).toHaveLength(0);
+  });
+
+  it("ignores constructor-like patterns inside triple-quoted strings", () => {
+    const text = `x = """Account(name=42)"""\nAccount(name="foo", location="bar")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    expect(diags.filter((d) => d.kind === "type-mismatch")).toHaveLength(0);
+    expect(diags.filter((d) => d.kind === "missing-field")).toHaveLength(0);
   });
 });

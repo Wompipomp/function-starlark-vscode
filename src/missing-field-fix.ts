@@ -111,6 +111,13 @@ export class MissingFieldQuickFixProvider implements vscode.CodeActionProvider {
       missingFieldNames.has(f.name),
     );
 
+    // Detect indentation from the line containing the opening paren
+    const openParenPos = document.positionAt(openParenOffset);
+    const openParenLine = document.lineAt(openParenPos.line);
+    const lineText = openParenLine.text;
+    const baseIndent = lineText.match(/^(\s*)/)?.[1] ?? "";
+    const fieldIndent = baseIndent + "    ";
+
     // Build snippet string
     const snippet = new vscode.SnippetString();
     if (needsLeadingComma) {
@@ -119,13 +126,13 @@ export class MissingFieldQuickFixProvider implements vscode.CodeActionProvider {
 
     let tabIndex = 1;
     for (const field of orderedFields) {
-      snippet.appendText("\n    " + field.name + " = ");
+      snippet.appendText("\n" + fieldIndent + field.name + " = ");
       buildPlaceholder(snippet, field.type, tabIndex++);
       snippet.appendText(",");
     }
 
     if (orderedFields.length > 0) {
-      snippet.appendText("\n");
+      snippet.appendText("\n" + baseIndent);
     }
 
     // Create code action

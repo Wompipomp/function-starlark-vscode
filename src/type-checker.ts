@@ -219,6 +219,92 @@ function isTypeCompatible(
 }
 
 /**
+ * Replace string contents and comments with spaces, preserving offsets.
+ * This prevents the constructor regex from matching inside strings/comments.
+ */
+function maskStringsAndComments(text: string): string {
+  const chars = text.split("");
+  let i = 0;
+
+  while (i < chars.length) {
+    // Line comment: # to end of line
+    if (chars[i] === "#") {
+      while (i < chars.length && chars[i] !== "\n") {
+        chars[i] = " ";
+        i++;
+      }
+      continue;
+    }
+
+    // Triple-quoted strings
+    if (
+      i + 2 < chars.length &&
+      ((chars[i] === '"' && chars[i + 1] === '"' && chars[i + 2] === '"') ||
+        (chars[i] === "'" && chars[i + 1] === "'" && chars[i + 2] === "'"))
+    ) {
+      const quote = chars[i];
+      chars[i] = " ";
+      chars[i + 1] = " ";
+      chars[i + 2] = " ";
+      i += 3;
+      while (i < chars.length) {
+        if (
+          chars[i] === "\\" &&
+          i + 1 < chars.length
+        ) {
+          chars[i] = " ";
+          chars[i + 1] = " ";
+          i += 2;
+          continue;
+        }
+        if (
+          i + 2 < chars.length &&
+          chars[i] === quote &&
+          chars[i + 1] === quote &&
+          chars[i + 2] === quote
+        ) {
+          chars[i] = " ";
+          chars[i + 1] = " ";
+          chars[i + 2] = " ";
+          i += 3;
+          break;
+        }
+        if (chars[i] !== "\n") chars[i] = " ";
+        i++;
+      }
+      continue;
+    }
+
+    // Single/double-quoted strings
+    if (chars[i] === '"' || chars[i] === "'") {
+      const quote = chars[i];
+      chars[i] = " ";
+      i++;
+      while (i < chars.length) {
+        if (chars[i] === "\\" && i + 1 < chars.length) {
+          chars[i] = " ";
+          chars[i + 1] = " ";
+          i += 2;
+          continue;
+        }
+        if (chars[i] === quote) {
+          chars[i] = " ";
+          i++;
+          break;
+        }
+        if (chars[i] !== "\n") chars[i] = " ";
+        i++;
+      }
+      continue;
+    }
+
+    i++;
+  }
+
+  return chars.join("");
+}
+
+/**
  * Check all schema constructor calls in the document text.
  *
  * Returns diagnostic descriptors for missing fields, type mismatches,
@@ -231,10 +317,11 @@ export function checkDocument(
   getSchemaMetadata: (symbolName: string) => SchemaMetadata | undefined,
 ): DiagnosticDescriptor[] {
   const diagnostics: DiagnosticDescriptor[] = [];
+  const masked = maskStringsAndComments(text);
   const callRe = /\b(?:(\w+)\.)?([A-Z]\w*)\s*\(/g;
 
   let match: RegExpExecArray | null;
-  while ((match = callRe.exec(text)) !== null) {
+  while ((match = callRe.exec(masked)) !== null) {
     const nsPrefix = match[1]; // undefined for bare calls
     const symbolName = match[2];
 
@@ -313,6 +400,8 @@ export function checkDocument(
       if (!field.type) continue; // No type info, skip
 
       const literalType = detectLiteralType(arg.valueText);
+      // None is a valid sentinel for optional fields in Starlark
+      if (literalType === "None" && !field.required) continue;
       if (!isTypeCompatible(field.type, literalType)) {
         const pos = offsetToLineChar(text, arg.valueOffset);
         // Compute the trimmed value length for the squiggle

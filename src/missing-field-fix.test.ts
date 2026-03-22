@@ -47,6 +47,7 @@ function createMockDocument(text: string): vscode.TextDocument {
     getText: () => text,
     positionAt,
     offsetAt,
+    lineAt: (line: number) => ({ text: lines[line] ?? "" }),
     languageId: "starlark",
   } as unknown as vscode.TextDocument;
 }
@@ -432,5 +433,32 @@ describe("MissingFieldQuickFixProvider", () => {
 
     const actions = provider.provideCodeActions(doc, range, context);
     expect(actions).toEqual([]);
+  });
+
+  it("detects indentation from constructor line for nested calls", () => {
+    const index = createMockSchemaIndex(schemas);
+    const provider = new MissingFieldQuickFixProvider(index);
+    // Constructor indented 4 spaces (e.g., inside a function body)
+    const doc = createMockDocument("    Account()\n");
+
+    const range = new vscode.Range(new vscode.Position(0, 4), new vscode.Position(0, 11));
+    const diag1 = createDiagnostic(range, 'Missing required field "name" in Account()', "missing-field", "functionStarlark");
+
+    const context = {
+      diagnostics: [diag1],
+      triggerKind: 1,
+      only: undefined,
+    } as unknown as vscode.CodeActionContext;
+
+    const actions = provider.provideCodeActions(doc, range, context);
+    const edit = actions[0].edit as vscode.WorkspaceEdit;
+    const setEdits = (edit as unknown as { setEdits: Array<[unknown, unknown[]]> }).setEdits;
+    const snippetEdit = setEdits[0][1][0] as { snippet: { value: string } };
+    const snippetValue = snippetEdit.snippet.value;
+
+    // Fields should be indented 8 spaces (base 4 + 4 more)
+    expect(snippetValue).toContain("\n        name = ");
+    // Closing paren alignment: base indent (4 spaces)
+    expect(snippetValue).toMatch(/,\n    $/);
   });
 });

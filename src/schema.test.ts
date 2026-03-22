@@ -7,6 +7,7 @@ vi.mock("os", () => ({ platform: () => "darwin" }));
 // Mock Phase 5 modules to avoid side effects in integration tests
 vi.mock("./schema-stubs", () => ({
   generateStubFile: vi.fn().mockReturnValue(undefined),
+  generateNamespaceStubs: vi.fn().mockReturnValue(false),
 }));
 vi.mock("./load-parser", () => ({
   parseLoadStatements: vi.fn().mockReturnValue([]),

@@ -654,6 +654,7 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
+  teardownSchemaSubsystem();
   if (configDebounceTimer) {
     clearTimeout(configDebounceTimer);
     configDebounceTimer = undefined;
