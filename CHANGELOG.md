@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.4.1...vscode-function-starlark-v0.5.0) (2026-04-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* none — re-releasing as minor for package build
+
+### Features
+
+* OCI function stub generation for starlark-lsp ([6fdea81](https://github.com/Wompipomp/function-starlark-vscode/commit/6fdea81e8e6edaab3e6cf99c1a53f07893ae2ca4))
+
 ## [0.4.1](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.4.0...vscode-function-starlark-v0.4.1) (2026-04-04)
 
 
