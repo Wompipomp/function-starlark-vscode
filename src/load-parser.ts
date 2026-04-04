@@ -165,8 +165,11 @@ export function parseLoadStatements(text: string): LoadStatement[] {
     const fullPath = match[1];
     const argsPart = match[2];
 
+    // Strip oci:// prefix for validation and splitting, but preserve in fullPath
+    const ociPath = fullPath.startsWith("oci://") ? fullPath.substring(6) : fullPath;
+
     // Skip non-OCI paths
-    if (!isOciLoadPath(fullPath)) continue;
+    if (!isOciLoadPath(ociPath)) continue;
 
     // Extract symbols and namespace imports from args
     const symbols: string[] = [];
@@ -189,7 +192,7 @@ export function parseLoadStatements(text: string): LoadStatement[] {
     // Skip entries with zero symbols and zero namespaces
     if (symbols.length === 0 && namespaces.length === 0) continue;
 
-    const { ociRef, tarEntryPath } = splitOciPath(fullPath);
+    const { ociRef, tarEntryPath } = splitOciPath(ociPath);
     results.push({ ociRef, tarEntryPath, symbols, namespaces, fullPath });
   }
 
