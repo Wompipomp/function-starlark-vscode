@@ -117,40 +117,33 @@ export interface ParsedFunction {
  */
 export function parseFunctions(content: string): ParsedFunction[] {
   const functions: ParsedFunction[] = [];
-  const lines = content.split("\n");
+  const defRe = /^def\s+(\w+)\s*\(/gm;
+  let match: RegExpExecArray | null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/^def\s+(\w+)\s*\(([^)]*)\)\s*:/);
-    if (!match) continue;
-
+  while ((match = defRe.exec(content)) !== null) {
     const name = match[1];
-    const params = match[2].replace(/\s+/g, " ").trim().replace(/,\s*$/, "");
+    const openParen = match.index + match[0].length - 1;
+    const closeParen = findMatchingParen(content, openParen);
+    if (closeParen < 0) continue;
 
-    // Look for docstring on next non-blank line
+    // Verify colon after closing paren
+    const afterParen = content.substring(closeParen + 1).match(/^\s*:/);
+    if (!afterParen) continue;
+
+    const rawParams = content.substring(openParen + 1, closeParen);
+    const params = rawParams.replace(/\s+/g, " ").trim().replace(/,\s*$/, "");
+
+    // Look for docstring after the def line
+    const defEnd = closeParen + 1 + afterParen[0].length;
+    const rest = content.substring(defEnd);
     let doc = "";
-    let j = i + 1;
-    while (j < lines.length && lines[j].trim() === "") j++;
 
-    if (j < lines.length) {
-      const trimmed = lines[j].trim();
-      if (trimmed.startsWith('"""')) {
-        if (trimmed.endsWith('"""') && trimmed.length > 6) {
-          // Single-line: """text"""
-          doc = trimmed.slice(3, -3).trim();
-        } else {
-          // Multi-line: collect until closing """
-          const docLines = [trimmed.slice(3)];
-          j++;
-          while (j < lines.length && !lines[j].includes('"""')) {
-            docLines.push(lines[j]);
-            j++;
-          }
-          if (j < lines.length) {
-            const last = lines[j].trim().replace(/"""$/, "").trim();
-            if (last) docLines.push(last);
-          }
-          doc = docLines.join("\n").trim();
-        }
+    const docMatch = rest.match(/^\s*\n\s*"""/);
+    if (docMatch) {
+      const docStart = defEnd + docMatch[0].length;
+      const docClose = content.indexOf('"""', docStart);
+      if (docClose >= 0) {
+        doc = content.substring(docStart, docClose).trim();
       }
     }
 
