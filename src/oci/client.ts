@@ -148,34 +148,87 @@ export class OciClient {
   /**
    * Exchange credentials for a Bearer token at the registry's token endpoint.
    *
-   * Sends Basic auth if credentials are available, anonymous request otherwise.
+   * Auth strategies in order:
+   * A. Identity token (ACR OAuth2) — POST with grant_type=refresh_token
+   * B. Basic auth (username+secret) — GET with Authorization: Basic header
+   * C. Refresh token fallback — POST with secret as refresh_token (when B fails)
+   * D. Anonymous — GET with no auth header
    */
   private async exchangeToken(
     realm: string,
     service: string,
     scope: string,
   ): Promise<string | undefined> {
+    // Strategy A: Identity token (ACR OAuth2 refresh token)
+    if (this.credentials?.identityToken) {
+      return this.exchangeRefreshToken(realm, service, scope, this.credentials.identityToken);
+    }
+
     const params = new URLSearchParams();
     if (service) params.set("service", service);
     if (scope) params.set("scope", scope);
 
     const tokenUrl = `${realm}?${params.toString()}`;
-    const headers: Record<string, string> = {};
 
     if (this.credentials) {
+      // Strategy B: GET with Basic auth
       const basic = Buffer.from(
         `${this.credentials.username}:${this.credentials.secret}`,
       ).toString("base64");
-      headers["Authorization"] = `Basic ${basic}`;
+
+      const response = await fetch(tokenUrl, {
+        headers: { Authorization: `Basic ${basic}` },
+      });
+
+      if (response.ok) {
+        const body = (await response.json()) as { token?: string; access_token?: string };
+        return body.token ?? body.access_token;
+      }
+
+      // Strategy C: Basic auth failed — try POST with secret as refresh_token
+      return this.exchangeRefreshToken(realm, service, scope, this.credentials.secret);
     }
 
-    const response = await fetch(tokenUrl, { headers });
+    // Strategy D: Anonymous GET
+    const response = await fetch(tokenUrl, { headers: {} });
 
     if (!response.ok) {
       return undefined;
     }
 
-    const body = (await response.json()) as { token?: string };
-    return body.token;
+    const body = (await response.json()) as { token?: string; access_token?: string };
+    return body.token ?? body.access_token;
+  }
+
+  /**
+   * POST-based token exchange using an OAuth2 refresh token.
+   *
+   * Used by ACR and registries that store refresh tokens in Docker config
+   * (as identitytoken or credential helper secret).
+   */
+  private async exchangeRefreshToken(
+    realm: string,
+    service: string,
+    scope: string,
+    refreshToken: string,
+  ): Promise<string | undefined> {
+    const body = new URLSearchParams();
+    body.set("grant_type", "refresh_token");
+    if (service) body.set("service", service);
+    if (scope) body.set("scope", scope);
+    body.set("refresh_token", refreshToken);
+
+    const response = await fetch(realm, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const json = (await response.json()) as { token?: string; access_token?: string };
+    return json.token ?? json.access_token;
   }
 }
