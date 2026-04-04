@@ -31,6 +31,10 @@ describe("isOciLoadPath", () => {
   it("returns false for relative path without colon", () => {
     expect(isOciLoadPath("lib/utils.star")).toBe(false);
   });
+
+  it("returns false for oci:// prefixed path (prefix stripping is parseLoadStatements' job)", () => {
+    expect(isOciLoadPath("oci://atlshared.azurecr.io/starlark-stdlib:v1.0.3/naming.star")).toBe(false);
+  });
 });
 
 describe("splitOciPath", () => {
@@ -210,5 +214,56 @@ load("relative/path.star", "something")
     const text = 'load("schemas-k8s:v1.31/apps/v1.star", storage="*")';
     const result = parseLoadStatements(text);
     expect(result).toHaveLength(1);
+  });
+
+  it("parses load with oci:// prefix on full registry path", () => {
+    const text = 'load("oci://atlshared.azurecr.io/starlark-stdlib:v1.0.3/naming.star", "resource_name")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([
+      {
+        ociRef: "atlshared.azurecr.io/starlark-stdlib:v1.0.3",
+        tarEntryPath: "naming.star",
+        symbols: ["resource_name"],
+        namespaces: [],
+        fullPath: "oci://atlshared.azurecr.io/starlark-stdlib:v1.0.3/naming.star",
+      },
+    ]);
+  });
+
+  it("parses load with oci:// prefix on short path", () => {
+    const text = 'load("oci://schemas-k8s:v1.31/apps/v1.star", "Deployment")';
+    const result = parseLoadStatements(text);
+    expect(result).toEqual([
+      {
+        ociRef: "schemas-k8s:v1.31",
+        tarEntryPath: "apps/v1.star",
+        symbols: ["Deployment"],
+        namespaces: [],
+        fullPath: "oci://schemas-k8s:v1.31/apps/v1.star",
+      },
+    ]);
+  });
+
+  it("parses load with oci:// prefix and namespace import", () => {
+    const text = 'load("oci://ghcr.io/org/schemas:v2.0/path/file.star", k8s="*")';
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].ociRef).toBe("ghcr.io/org/schemas:v2.0");
+    expect(result[0].tarEntryPath).toBe("path/file.star");
+    expect(result[0].namespaces).toEqual([{ name: "k8s", value: "*" }]);
+    expect(result[0].fullPath).toBe("oci://ghcr.io/org/schemas:v2.0/path/file.star");
+  });
+
+  it("handles mix of oci:// prefixed and non-prefixed loads", () => {
+    const text = `
+load("oci://atlshared.azurecr.io/starlark-stdlib:v1.0.3/naming.star", "resource_name")
+load("schemas-k8s:v1.31/apps/v1.star", "Deployment")
+`;
+    const result = parseLoadStatements(text);
+    expect(result).toHaveLength(2);
+    expect(result[0].fullPath).toBe("oci://atlshared.azurecr.io/starlark-stdlib:v1.0.3/naming.star");
+    expect(result[0].ociRef).toBe("atlshared.azurecr.io/starlark-stdlib:v1.0.3");
+    expect(result[1].fullPath).toBe("schemas-k8s:v1.31/apps/v1.star");
+    expect(result[1].ociRef).toBe("schemas-k8s:v1.31");
   });
 });
