@@ -205,6 +205,108 @@ describe("OciClient", () => {
       expect(blobCall[1].headers.Authorization).toBe("Bearer reused-token");
     });
 
+    it("sends POST with refresh_token grant when credentials have identityToken", async () => {
+      const tokenEndpoint = "https://myregistry.azurecr.io/oauth2/token";
+      const creds = { username: "", secret: "", identityToken: "acr-refresh-token" };
+
+      (parseWwwAuthenticate as unknown as Mock).mockReturnValue({
+        realm: tokenEndpoint,
+        service: "myregistry.azurecr.io",
+        scope: `repository:${repo}:pull`,
+      });
+
+      // 1st: manifest -> 401
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(401, null, { "www-authenticate": "Bearer ..." }),
+      );
+      // 2nd: token exchange POST -> 200
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(200, { token: "acr-access-token" }),
+      );
+      // 3rd: manifest retry -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, manifest));
+      // 4th: blob -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([1])));
+
+      const client = new OciClient(registry, repo, creds);
+      await client.pullArtifact(tag);
+
+      // Verify the token exchange call used POST
+      const tokenCall = fetchMock.mock.calls[1];
+      expect(tokenCall[1].method).toBe("POST");
+      expect(tokenCall[1].headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
+      expect(tokenCall[1].body).toContain("grant_type=refresh_token");
+      expect(tokenCall[1].body).toContain("refresh_token=acr-refresh-token");
+      expect(tokenCall[1].headers.Authorization).toBeUndefined();
+    });
+
+    it("falls back to POST refresh_token when GET+Basic returns non-200", async () => {
+      const tokenEndpoint = "https://ghcr.io/token";
+      const creds = { username: "user", secret: "might-be-refresh-token" };
+
+      (parseWwwAuthenticate as unknown as Mock).mockReturnValue({
+        realm: tokenEndpoint,
+        service: "ghcr.io",
+        scope: `repository:${repo}:pull`,
+      });
+
+      // 1st: manifest -> 401
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(401, null, { "www-authenticate": "Bearer ..." }),
+      );
+      // 2nd: GET token exchange (Basic) -> 401 (fails)
+      fetchMock.mockResolvedValueOnce(mockResponse(401, null));
+      // 3rd: POST token exchange (refresh_token fallback) -> 200
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(200, { token: "fallback-token" }),
+      );
+      // 4th: manifest retry -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, manifest));
+      // 5th: blob -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([1])));
+
+      const client = new OciClient(registry, repo, creds);
+      await client.pullArtifact(tag);
+
+      // 3 fetch calls before manifest retry: initial manifest, GET token, POST token
+      expect(fetchMock.mock.calls).toHaveLength(5);
+      // 2nd call: GET with Basic auth
+      expect(fetchMock.mock.calls[1][1].method).toBeUndefined(); // GET (default)
+      // 3rd call: POST with refresh_token
+      expect(fetchMock.mock.calls[2][1].method).toBe("POST");
+      expect(fetchMock.mock.calls[2][1].body).toContain("refresh_token=might-be-refresh-token");
+    });
+
+    it("handles access_token in token response instead of token", async () => {
+      const tokenEndpoint = "https://ghcr.io/token";
+
+      (parseWwwAuthenticate as unknown as Mock).mockReturnValue({
+        realm: tokenEndpoint,
+        service: "ghcr.io",
+        scope: `repository:${repo}:pull`,
+      });
+
+      // 1st: manifest -> 401
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(401, null, { "www-authenticate": "Bearer ..." }),
+      );
+      // 2nd: token exchange returns access_token instead of token
+      fetchMock.mockResolvedValueOnce(
+        mockResponse(200, { access_token: "acr-access-tok" }),
+      );
+      // 3rd: manifest retry -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, manifest));
+      // 4th: blob -> 200
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([1])));
+
+      const client = new OciClient(registry, repo);
+      await client.pullArtifact(tag);
+
+      // Verify retry uses the access_token
+      const retryCall = fetchMock.mock.calls[2];
+      expect(retryCall[1].headers.Authorization).toBe("Bearer acr-access-tok");
+    });
+
     it("throws on non-200 manifest response after auth retry", async () => {
       fetchMock.mockResolvedValueOnce(mockResponse(403, null));
 
