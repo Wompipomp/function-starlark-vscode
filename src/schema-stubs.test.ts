@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSchemas, generateStub } from "./schema-stubs";
+import { parseSchemas, generateStub, parseFunctions, generateFunctionStub } from "./schema-stubs";
 
 describe("parseSchemas", () => {
   it("parses a simple schema with fields", () => {
@@ -122,5 +122,93 @@ describe("generateStub", () => {
     const stub = generateStub(schemas);
     expect(stub).toContain("def A():");
     expect(stub).toContain("def B(x=None):");
+  });
+});
+
+describe("parseFunctions", () => {
+  it("parses a simple top-level function", () => {
+    const content = `def resource_name(oxr, suffix=""):
+    return get(oxr, "metadata.name") + suffix`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(1);
+    expect(fns[0].name).toBe("resource_name");
+    expect(fns[0].params).toBe('oxr, suffix=""');
+    expect(fns[0].doc).toBe("");
+  });
+
+  it("extracts single-line docstring", () => {
+    const content = `def resource_name(oxr):
+    """Generate a resource name from the composite resource."""
+    return oxr`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(1);
+    expect(fns[0].doc).toBe("Generate a resource name from the composite resource.");
+  });
+
+  it("extracts multi-line docstring", () => {
+    const content = `def resource_name(oxr):
+    """Generate a resource name.
+
+    Args:
+        oxr: The composite resource.
+    """
+    return oxr`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(1);
+    expect(fns[0].doc).toContain("Generate a resource name.");
+    expect(fns[0].doc).toContain("Args:");
+    expect(fns[0].doc).toContain("oxr: The composite resource.");
+  });
+
+  it("parses multiple functions", () => {
+    const content = `def foo():
+    pass
+
+def bar(x, y):
+    pass`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(2);
+    expect(fns[0].name).toBe("foo");
+    expect(fns[1].name).toBe("bar");
+    expect(fns[1].params).toBe("x, y");
+  });
+
+  it("ignores indented (nested) defs", () => {
+    const content = `def outer():
+    def inner():
+        pass
+    return inner`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(1);
+    expect(fns[0].name).toBe("outer");
+  });
+
+  it("strips trailing comma from params", () => {
+    const content = `def foo(a, b,):
+    pass`;
+    const fns = parseFunctions(content);
+    expect(fns[0].params).toBe("a, b");
+  });
+});
+
+describe("generateFunctionStub", () => {
+  it("generates Python def with docstring", () => {
+    const fns = [{ name: "resource_name", params: 'oxr, suffix=""', doc: "Generate a resource name." }];
+    const stub = generateFunctionStub(fns);
+    expect(stub).toContain('def resource_name(oxr, suffix=""):');
+    expect(stub).toContain('"""Generate a resource name."""');
+    expect(stub).toContain("    pass");
+  });
+
+  it("generates def without docstring", () => {
+    const fns = [{ name: "helper", params: "x", doc: "" }];
+    const stub = generateFunctionStub(fns);
+    expect(stub).toContain("def helper(x):");
+    expect(stub).not.toContain('"""');
+    expect(stub).toContain("    pass");
+  });
+
+  it("returns empty string for no functions", () => {
+    expect(generateFunctionStub([])).toBe("");
   });
 });
