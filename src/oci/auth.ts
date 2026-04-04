@@ -14,6 +14,7 @@ import { spawn } from "child_process";
 export interface DockerCredentials {
   username: string;
   secret: string;
+  identityToken?: string;
 }
 
 /** Parameters extracted from a WWW-Authenticate Bearer challenge. */
@@ -26,7 +27,7 @@ export interface WwwAuthenticateParams {
 interface DockerConfig {
   credHelpers?: Record<string, string>;
   credsStore?: string;
-  auths?: Record<string, { auth?: string }>;
+  auths?: Record<string, { auth?: string; identitytoken?: string }>;
 }
 
 /**
@@ -125,8 +126,17 @@ export async function getDockerCredentials(
     return runCredentialHelper(config.credsStore, registry);
   }
 
-  // 3. Fall back to static base64 auths
+  // 3. Check for OAuth2 identity token (ACR stores refresh tokens here)
   const authEntry = config.auths?.[registry];
+  if (authEntry?.identitytoken) {
+    return {
+      username: "",
+      secret: "",
+      identityToken: authEntry.identitytoken,
+    };
+  }
+
+  // 4. Fall back to static base64 auths
   if (authEntry?.auth) {
     try {
       const decoded = Buffer.from(authEntry.auth, "base64").toString("utf-8");
@@ -142,7 +152,7 @@ export async function getDockerCredentials(
     }
   }
 
-  // 4. No credentials found - anonymous pull
+  // 5. No credentials found - anonymous pull
   return undefined;
 }
 
