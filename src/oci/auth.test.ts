@@ -180,6 +180,29 @@ describe("getDockerCredentials", () => {
     );
   });
 
+  it("returns identityToken from auths when identitytoken field is present", async () => {
+    stubDockerConfig({
+      auths: { "myregistry.azurecr.io": { identitytoken: "refresh-token-xyz" } },
+    });
+
+    const result = await getDockerCredentials("myregistry.azurecr.io");
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ username: "", secret: "", identityToken: "refresh-token-xyz" });
+  });
+
+  it("identitytoken takes priority over auth when both present", async () => {
+    const encoded = Buffer.from("myuser:mypass").toString("base64");
+    stubDockerConfig({
+      auths: { "myregistry.azurecr.io": { identitytoken: "refresh-token-abc", auth: encoded } },
+    });
+
+    const result = await getDockerCredentials("myregistry.azurecr.io");
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(result).toEqual({ username: "", secret: "", identityToken: "refresh-token-abc" });
+  });
+
   it("falls through credHelpers to credsStore when registry not in credHelpers", async () => {
     stubDockerConfig({
       credHelpers: { "docker.io": "desktop" },
