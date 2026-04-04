@@ -189,6 +189,20 @@ def bar(x, y):
     const fns = parseFunctions(content);
     expect(fns[0].params).toBe("a, b");
   });
+
+  it("handles multi-line parameter lists", () => {
+    const content = `def resource_name(
+    oxr,
+    suffix="",
+):
+    """Generate a resource name."""
+    return oxr`;
+    const fns = parseFunctions(content);
+    expect(fns).toHaveLength(1);
+    expect(fns[0].name).toBe("resource_name");
+    expect(fns[0].params).toBe('oxr, suffix=""');
+    expect(fns[0].doc).toBe("Generate a resource name.");
+  });
 });
 
 describe("generateFunctionStub", () => {
