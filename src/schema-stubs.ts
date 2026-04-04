@@ -103,6 +103,87 @@ export function findMatchingParen(text: string, openIdx: number): number {
   return depth === 0 ? i - 1 : -1;
 }
 
+export interface ParsedFunction {
+  name: string;
+  params: string;
+  doc: string;
+}
+
+/**
+ * Parse top-level def statements from .star file content.
+ *
+ * Extracts function name, parameter list, and optional docstring.
+ * Only matches non-indented defs (top-level functions).
+ */
+export function parseFunctions(content: string): ParsedFunction[] {
+  const functions: ParsedFunction[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/^def\s+(\w+)\s*\(([^)]*)\)\s*:/);
+    if (!match) continue;
+
+    const name = match[1];
+    const params = match[2].replace(/\s+/g, " ").trim().replace(/,\s*$/, "");
+
+    // Look for docstring on next non-blank line
+    let doc = "";
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === "") j++;
+
+    if (j < lines.length) {
+      const trimmed = lines[j].trim();
+      if (trimmed.startsWith('"""')) {
+        if (trimmed.endsWith('"""') && trimmed.length > 6) {
+          // Single-line: """text"""
+          doc = trimmed.slice(3, -3).trim();
+        } else {
+          // Multi-line: collect until closing """
+          const docLines = [trimmed.slice(3)];
+          j++;
+          while (j < lines.length && !lines[j].includes('"""')) {
+            docLines.push(lines[j]);
+            j++;
+          }
+          if (j < lines.length) {
+            const last = lines[j].trim().replace(/"""$/, "").trim();
+            if (last) docLines.push(last);
+          }
+          doc = docLines.join("\n").trim();
+        }
+      }
+    }
+
+    functions.push({ name, params, doc });
+  }
+
+  return functions;
+}
+
+/**
+ * Generate Python stub strings from parsed functions.
+ */
+export function generateFunctionStub(functions: ParsedFunction[]): string {
+  if (functions.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const fn of functions) {
+    lines.push(`def ${fn.name}(${fn.params}):`);
+    if (fn.doc) {
+      if (fn.doc.includes("\n")) {
+        lines.push(`    """${fn.doc}`);
+        lines.push('    """');
+      } else {
+        lines.push(`    """${fn.doc}"""`);
+      }
+    }
+    lines.push("    pass");
+    lines.push("");
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 /**
  * Parse all schema() definitions from .star file content.
  */
@@ -220,6 +301,7 @@ export function generateStub(schemas: ParsedSchema[]): string {
  */
 export function generateStubFile(cacheDir: string): string | undefined {
   const allSchemas: ParsedSchema[] = [];
+  const allFunctions: ParsedFunction[] = [];
 
   function walk(currentDir: string): void {
     const entries = fs.readdirSync(currentDir);
@@ -230,26 +312,35 @@ export function generateStubFile(cacheDir: string): string | undefined {
         walk(fullPath);
       } else if ((entry as string).endsWith(".star")) {
         const content = fs.readFileSync(fullPath, "utf-8");
-        const schemas = parseSchemas(content);
-        allSchemas.push(...schemas);
+        allSchemas.push(...parseSchemas(content));
+        allFunctions.push(...parseFunctions(content));
       }
     }
   }
 
   walk(cacheDir);
 
-  if (allSchemas.length === 0) return undefined;
+  if (allSchemas.length === 0 && allFunctions.length === 0) return undefined;
 
-  // Deduplicate by name (same schema may appear in multiple files)
+  // Deduplicate schemas by name
   const seen = new Set<string>();
-  const unique = allSchemas.filter((s) => {
+  const uniqueSchemas = allSchemas.filter((s) => {
     if (seen.has(s.name)) return false;
     seen.add(s.name);
     return true;
   });
 
+  // Deduplicate functions, excluding names already claimed by schemas
+  const uniqueFunctions = allFunctions.filter((f) => {
+    if (seen.has(f.name)) return false;
+    seen.add(f.name);
+    return true;
+  });
+
   const stubPath = path.join(cacheDir, "__init__.py");
-  const newContent = generateStub(unique);
+  const schemaStubs = generateStub(uniqueSchemas);
+  const fnStubs = generateFunctionStub(uniqueFunctions);
+  const newContent = schemaStubs + fnStubs;
 
   // Only write if content changed — avoids triggering FileSystemWatcher loops
   let existing = "";
@@ -295,29 +386,39 @@ export function generateNamespaceStubs(
 
   for (const [nsName, filePaths] of namespaceFiles) {
     const allSchemas: ParsedSchema[] = [];
+    const allFunctions: ParsedFunction[] = [];
 
     for (const relPath of filePaths) {
       const fullPath = path.join(cacheDir, relPath);
       try {
         const content = fs.readFileSync(fullPath, "utf-8");
         allSchemas.push(...parseSchemas(content));
+        allFunctions.push(...parseFunctions(content));
       } catch {
         // File may not be downloaded yet
       }
     }
 
-    if (allSchemas.length === 0) continue;
+    if (allSchemas.length === 0 && allFunctions.length === 0) continue;
 
-    // Deduplicate
+    // Deduplicate schemas
     const seen = new Set<string>();
-    const unique = allSchemas.filter((s) => {
+    const uniqueSchemas = allSchemas.filter((s) => {
       if (seen.has(s.name)) return false;
       seen.add(s.name);
       return true;
     });
 
+    // Deduplicate functions, excluding schema names
+    const uniqueFunctions = allFunctions.filter((f) => {
+      if (seen.has(f.name)) return false;
+      seen.add(f.name);
+      return true;
+    });
+
     const stubPath = path.join(cacheDir, `${nsName}.py`);
-    if (writeIfChanged(stubPath, generateStub(unique))) {
+    const content = generateStub(uniqueSchemas) + generateFunctionStub(uniqueFunctions);
+    if (writeIfChanged(stubPath, content)) {
       changed = true;
     }
   }
