@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.4.0...vscode-function-starlark-v0.4.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* generate LSP stubs for def functions in OCI schema packages ([76e0311](https://github.com/Wompipomp/function-starlark-vscode/commit/76e0311b0f11380fe97e16eba81109e211f8b178))
+
 ## [0.4.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.3.0...vscode-function-starlark-v0.4.0) (2026-04-04)
 
 
