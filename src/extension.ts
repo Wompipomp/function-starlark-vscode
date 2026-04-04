@@ -22,6 +22,7 @@ import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { TypeWarningProvider } from "./type-warning-provider";
 import { MissingFieldQuickFixProvider } from "./missing-field-fix";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
+import { isLspNoiseDiagnostic } from "./lsp-diagnostic-filter";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -321,9 +322,8 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
       },
       ...(scopingMiddleware as unknown as Partial<Middleware>),
       handleDiagnostics: (uri, diagnostics, next) => {
-        // Filter out starlark-lsp "no such file or directory" errors for OCI load paths
         const filtered = diagnostics.filter(
-          (d) => !d.message.includes("no such file or directory"),
+          (d) => !isLspNoiseDiagnostic(d.message),
         );
         next(uri, filtered);
       },
