@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.3.0...vscode-function-starlark-v0.4.0) (2026-04-04)
+
+
+### Features
+
+* **quick-1:** extract LSP diagnostic noise filter and add "only file URIs" pattern ([31f1a51](https://github.com/Wompipomp/function-starlark-vscode/commit/31f1a514e6c28a6b423abdbd89744ef732e67e2a))
+* **quick-2:** strip oci:// prefix in parseLoadStatements ([c12c30d](https://github.com/Wompipomp/function-starlark-vscode/commit/c12c30dfe86cb98480a7505492b5de56b3cb009f))
+* **quick-3:** add ACR OAuth2 token exchange and access_token handling ([438d986](https://github.com/Wompipomp/function-starlark-vscode/commit/438d9865cddea6dc3ddc7304781155a2349e539a))
+* **quick-3:** add identityToken support to Docker credential resolution ([e74895b](https://github.com/Wompipomp/function-starlark-vscode/commit/e74895b761ca0aafedc3b0c9d91979226bfc74c2))
+
 ## [0.3.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.2.0...vscode-function-starlark-v0.3.0) (2026-03-22)
 
 
