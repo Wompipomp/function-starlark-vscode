@@ -8,11 +8,20 @@ import { OciClient } from "./client";
 // --- Helpers ---
 
 /** Build a minimal OCI manifest JSON. */
-function makeManifest(layerDigest: string) {
+function makeManifest(layerDigest: string, annotations?: Record<string, string>) {
   return {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.manifest.v1+json",
-    layers: [{ digest: layerDigest, mediaType: "application/vnd.fn-starlark.layer.v1.tar", size: 1024 }],
+    layers: [{ digest: layerDigest, mediaType: "application/vnd.fn-starlark.layer.v1.tar", size: 1024, annotations }],
+  };
+}
+
+/** Build a multi-layer manifest. */
+function makeMultiLayerManifest(layers: Array<{ digest: string; mediaType: string; annotations?: Record<string, string> }>) {
+  return {
+    schemaVersion: 2,
+    mediaType: "application/vnd.oci.image.manifest.v1+json",
+    layers: layers.map((l) => ({ ...l, size: 100 })),
   };
 }
 
@@ -77,7 +86,7 @@ describe("OciClient", () => {
       );
     });
 
-    it("returns Uint8Array of blob data", async () => {
+    it("returns OciLayer array with data and metadata", async () => {
       const blobData = new Uint8Array([10, 20, 30, 40]);
       fetchMock.mockResolvedValueOnce(mockResponse(200, manifest));
       fetchMock.mockResolvedValueOnce(mockResponse(200, blobData));
@@ -85,8 +94,37 @@ describe("OciClient", () => {
       const client = new OciClient(registry, repo);
       const result = await client.pullArtifact(tag);
 
-      expect(result).toBeInstanceOf(Uint8Array);
-      expect(result).toEqual(blobData);
+      expect(result).toHaveLength(1);
+      expect(result[0].data).toEqual(blobData);
+      expect(result[0].mediaType).toBe("application/vnd.fn-starlark.layer.v1.tar");
+    });
+
+    it("returns filename from layer annotation", async () => {
+      const annotatedManifest = makeManifest(layerDigest, { "org.opencontainers.image.title": "naming.star" });
+      fetchMock.mockResolvedValueOnce(mockResponse(200, annotatedManifest));
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([1])));
+
+      const client = new OciClient(registry, repo);
+      const result = await client.pullArtifact(tag);
+
+      expect(result[0].filename).toBe("naming.star");
+    });
+
+    it("downloads all layers from multi-layer manifest", async () => {
+      const multiManifest = makeMultiLayerManifest([
+        { digest: "sha256:aaa", mediaType: "application/octet-stream", annotations: { "org.opencontainers.image.title": "a.star" } },
+        { digest: "sha256:bbb", mediaType: "application/octet-stream", annotations: { "org.opencontainers.image.title": "b.star" } },
+      ]);
+      fetchMock.mockResolvedValueOnce(mockResponse(200, multiManifest));
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([1])));
+      fetchMock.mockResolvedValueOnce(mockResponse(200, new Uint8Array([2])));
+
+      const client = new OciClient(registry, repo);
+      const result = await client.pullArtifact(tag);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].filename).toBe("a.star");
+      expect(result[1].filename).toBe("b.star");
     });
 
     it("handles 401 by parsing Www-Authenticate, exchanging for Bearer token, and retrying", async () => {

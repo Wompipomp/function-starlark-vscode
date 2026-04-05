@@ -141,6 +141,7 @@ export class SchemaIndex {
   }
 
   private walkDir(dir: string, rootDir: string): void {
+    if (!fs.existsSync(dir)) return;
     const entries = fs.readdirSync(dir);
     for (const entry of entries) {
       const fullPath = path.join(dir, entry as string);

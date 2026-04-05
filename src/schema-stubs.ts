@@ -297,6 +297,7 @@ export function generateStubFile(cacheDir: string): string | undefined {
   const allFunctions: ParsedFunction[] = [];
 
   function walk(currentDir: string): void {
+    if (!fs.existsSync(currentDir)) return;
     const entries = fs.readdirSync(currentDir);
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry as string);

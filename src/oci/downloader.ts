@@ -8,10 +8,24 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as zlib from "zlib";
 import { parseTar } from "nanotar";
-import { OciClient } from "./client";
+import { OciClient, type OciLayer } from "./client";
 import { getDockerCredentials } from "./auth";
 import { resolveOciRef } from "../load-parser";
+
+/** Detect gzip magic bytes (0x1f 0x8b). */
+function isGzip(data: Uint8Array): boolean {
+  return data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
+/** Detect tar by checking for valid tar header (name + null padding in first 512 bytes). */
+function isTar(data: Uint8Array): boolean {
+  // Tar header is 512 bytes minimum. Byte 257-261 should be "ustar" for POSIX tar.
+  if (data.length < 512) return false;
+  const ustar = String.fromCharCode(...data.slice(257, 262));
+  return ustar === "ustar";
+}
 
 /** Minimal log interface matching VSCode LogOutputChannel. */
 interface Log {
@@ -100,38 +114,22 @@ export class OciDownloader {
       // Resolve credentials for the registry
       const credentials = await getDockerCredentials(registryHost);
 
-      // Pull the artifact (manifest + blob)
+      // Pull all layers from the artifact
       const client = new OciClient(registryHost, repository, credentials);
-      const tarData = await client.pullArtifact(tag);
-
-      // Extract tar entries
-      const entries = parseTar(tarData);
+      const layers = await client.pullArtifact(tag);
 
       // Create the temp directory
       fs.mkdirSync(tmpDir, { recursive: true });
 
-      for (const entry of entries) {
-        // Only extract file-type entries (nanotar uses "file" for regular files)
-        if (entry.type && entry.type !== "file") {
-          continue;
-        }
-
-        if (!entry.data) {
-          continue;
-        }
-
-        const outPath = path.join(tmpDir, entry.name);
-        const dirName = path.dirname(outPath);
-
-        // Create intermediate directories
-        fs.mkdirSync(dirName, { recursive: true });
-        fs.writeFileSync(outPath, Buffer.from(entry.data));
+      let extracted = 0;
+      for (const layer of layers) {
+        extracted += this.extractLayer(layer, tmpDir);
       }
 
       // Atomic move: rename temp dir to final cache dir
       fs.renameSync(tmpDir, artifactCacheDir);
 
-      this.log?.info(`Cached: ${registryHost}/${repository}:${tag}`);
+      this.log?.info(`Cached: ${registryHost}/${repository}:${tag} (${extracted} files extracted)`);
       return artifactCacheDir;
     } catch (error) {
       // Clean up temp directory on failure
@@ -143,5 +141,59 @@ export class OciDownloader {
       this.log?.warn(`Download failed: ${registryHost}/${repository}:${tag} - ${error}`);
       throw error;
     }
+  }
+
+  /**
+   * Extract a single OCI layer to the target directory.
+   *
+   * Handles three formats:
+   * - tar+gzip: decompress then extract tar entries
+   * - plain tar: extract tar entries directly
+   * - raw file: write directly using the filename annotation
+   *
+   * Returns the number of files extracted.
+   */
+  private extractLayer(layer: OciLayer, targetDir: string): number {
+    let data = layer.data;
+
+    // Decompress gzip if needed
+    if (isGzip(data)) {
+      data = new Uint8Array(zlib.gunzipSync(data));
+    }
+
+    // Try tar extraction
+    if (isTar(data)) {
+      return this.extractTar(data, targetDir);
+    }
+
+    // Raw file layer — use annotation filename
+    if (layer.filename) {
+      const outPath = path.join(targetDir, layer.filename);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, Buffer.from(data));
+      this.log?.info(`Extracted file layer: ${layer.filename} (${data.length} bytes)`);
+      return 1;
+    }
+
+    this.log?.warn(`Skipping layer: no tar header and no filename annotation (mediaType=${layer.mediaType}, ${data.length} bytes)`);
+    return 0;
+  }
+
+  /** Extract tar entries to the target directory. Returns file count. */
+  private extractTar(data: Uint8Array, targetDir: string): number {
+    const entries = parseTar(data);
+    let count = 0;
+
+    for (const entry of entries) {
+      if (entry.type && entry.type !== "file") continue;
+      if (!entry.data) continue;
+
+      const outPath = path.join(targetDir, entry.name);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, Buffer.from(entry.data));
+      count++;
+    }
+
+    return count;
   }
 }

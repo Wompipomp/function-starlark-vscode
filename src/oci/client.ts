@@ -8,6 +8,14 @@
 
 import { type DockerCredentials, parseWwwAuthenticate } from "./auth";
 
+/** A downloaded OCI layer with metadata. */
+export interface OciLayer {
+  mediaType: string;
+  data: Uint8Array;
+  /** Filename from org.opencontainers.image.title annotation. */
+  filename?: string;
+}
+
 /** Minimal OCI image manifest structure (fields we need). */
 interface OciManifest {
   schemaVersion: number;
@@ -15,6 +23,7 @@ interface OciManifest {
     digest: string;
     mediaType: string;
     size: number;
+    annotations?: Record<string, string>;
   }>;
 }
 
@@ -42,13 +51,25 @@ export class OciClient {
   }
 
   /**
-   * Pull a complete artifact: fetch the manifest, extract the first layer
-   * digest, and download the blob as a Uint8Array (tar data).
+   * Pull all layers from an OCI artifact.
+   *
+   * Returns each layer with its mediaType, data, and optional filename
+   * (from the org.opencontainers.image.title annotation).
    */
-  async pullArtifact(tag: string): Promise<Uint8Array> {
+  async pullArtifact(tag: string): Promise<OciLayer[]> {
     const manifest = await this.getManifest(tag);
-    const layerDigest = manifest.layers[0].digest;
-    return this.getBlob(layerDigest);
+    const layers: OciLayer[] = [];
+
+    for (const layer of manifest.layers) {
+      const data = await this.getBlob(layer.digest);
+      layers.push({
+        mediaType: layer.mediaType,
+        data,
+        filename: layer.annotations?.["org.opencontainers.image.title"],
+      });
+    }
+
+    return layers;
   }
 
   /**
