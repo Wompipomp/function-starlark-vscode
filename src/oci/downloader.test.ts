@@ -30,7 +30,16 @@ function setupResolveOciRef(artifactName: string, tag: string) {
   });
 }
 
-function setupMocks(opts: { cacheExists?: boolean; tarEntries?: Array<{ name: string; type?: string; data?: Uint8Array }> } = {}) {
+/** Build a fake tar header with valid ustar magic at byte 257. */
+function fakeTarData(): Uint8Array {
+  const data = new Uint8Array(512);
+  // "ustar" at offset 257
+  const ustar = [117, 115, 116, 97, 114]; // u s t a r
+  data.set(ustar, 257);
+  return data;
+}
+
+function setupMocks(opts: { cacheExists?: boolean; tarEntries?: Array<{ name: string; type?: string; data?: Uint8Array }>; layers?: Array<{ mediaType: string; data: Uint8Array; filename?: string }> } = {}) {
   (fs.existsSync as unknown as Mock).mockReturnValue(opts.cacheExists ?? false);
   (fs.mkdirSync as unknown as Mock).mockReturnValue(undefined);
   (fs.writeFileSync as unknown as Mock).mockReturnValue(undefined);
@@ -39,7 +48,10 @@ function setupMocks(opts: { cacheExists?: boolean; tarEntries?: Array<{ name: st
 
   (getDockerCredentials as unknown as Mock).mockResolvedValue(undefined);
 
-  const mockPullArtifact = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+  const defaultLayers = opts.layers ?? [
+    { mediaType: "application/vnd.fn-starlark.layer.v1.tar", data: fakeTarData() },
+  ];
+  const mockPullArtifact = vi.fn().mockResolvedValue(defaultLayers);
   (OciClient as unknown as Mock).mockImplementation(function () {
     return { pullArtifact: mockPullArtifact };
   });
@@ -242,6 +254,32 @@ describe("OciDownloader", () => {
       await downloader.ensureArtifact("schemas-k8s:v1.31");
 
       expect(parseTar).toHaveBeenCalledWith(expect.any(Uint8Array));
+    });
+
+    it("writes raw file layers using filename annotation", async () => {
+      setupResolveOciRef("starlark-stdlib", "v1.0.3");
+      const fileContent = new Uint8Array([100, 101, 102]);
+      setupMocks({
+        cacheExists: false,
+        tarEntries: [],
+        layers: [
+          { mediaType: "application/octet-stream", data: fileContent, filename: "naming.star" },
+          { mediaType: "application/octet-stream", data: new Uint8Array([1, 2]), filename: "conditions.star" },
+        ],
+      });
+
+      const downloader = new OciDownloader(cacheDir, defaultRegistry);
+      await downloader.ensureArtifact("starlark-stdlib:v1.0.3");
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("naming.star"),
+        expect.any(Buffer),
+      );
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("conditions.star"),
+        expect.any(Buffer),
+      );
+      expect(parseTar).not.toHaveBeenCalled();
     });
   });
 });

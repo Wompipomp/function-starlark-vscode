@@ -7,6 +7,7 @@ import {
 
 // Mock fs module
 vi.mock("fs", () => ({
+  existsSync: vi.fn(),
   readdirSync: vi.fn(),
   readFileSync: vi.fn(),
   statSync: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("fs", () => ({
 
 import * as fs from "fs";
 
+const mockedExistsSync = vi.mocked(fs.existsSync);
 const mockedReaddirSync = vi.mocked(fs.readdirSync);
 const mockedReadFileSync = vi.mocked(fs.readFileSync);
 const mockedStatSync = vi.mocked(fs.statSync);
@@ -158,6 +160,8 @@ describe("SchemaIndex", () => {
       // Store full path for file reading
       files[filePath] = files[filePath]; // no change, just for clarity
     }
+
+    mockedExistsSync.mockReturnValue(true);
 
     mockedReaddirSync.mockImplementation((dirPath: unknown) => {
       const p = String(dirPath);
