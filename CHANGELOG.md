@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.5.0...vscode-function-starlark-v0.6.0) (2026-04-05)
+
+
+### Features
+
+* handle multi-line params in function stub generation ([a1ca831](https://github.com/Wompipomp/function-starlark-vscode/commit/a1ca831bd40512c5a903a3cb8b1def27ec9169e5))
+
 ## [0.5.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.4.1...vscode-function-starlark-v0.5.0) (2026-04-04)
 
 
