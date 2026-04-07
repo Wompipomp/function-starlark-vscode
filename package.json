@@ -2,7 +2,7 @@
   "name": "vscode-function-starlark",
   "displayName": "Function Starlark",
   "description": "Starlark IDE support for function-starlark compositions — autocomplete, hover docs, syntax highlighting",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "wompipomp",
   "license": "Apache-2.0",
   "icon": "images/icon.png",
