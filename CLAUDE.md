@@ -13,7 +13,7 @@ VSCode extension for function-starlark composition authoring. Provides syntax hi
 
 ## Key Design Decisions
 
-- Users must install `starlark-lsp` binary separately (`go install github.com/tilt-dev/starlark-lsp@latest`)
+- Users must install `starlark-lsp` binary separately (`go install github.com/tilt-dev/starlark-lsp/cmd/starlark-lsp@latest`)
 - Extension bundles the builtins stub file — updates to builtins come with extension updates
 - Uses `vscode-languageclient` npm package for LSP client
 - TextMate grammar sourced from vscode-bazel (MIT licensed)
