@@ -22,7 +22,7 @@ The extension uses [starlark-lsp](https://github.com/tilt-dev/starlark-lsp) as i
 **Via Go:**
 
 ```bash
-go install github.com/tilt-dev/starlark-lsp@latest
+go install github.com/tilt-dev/starlark-lsp/cmd/starlark-lsp@latest
 ```
 
 Make sure `$GOPATH/bin` (typically `~/go/bin`) is in your `PATH`.

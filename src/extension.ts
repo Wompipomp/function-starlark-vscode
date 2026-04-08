@@ -202,7 +202,7 @@ async function showBinaryNotFoundNotification(
       const terminal = vscode.window.createTerminal("Install starlark-lsp");
       terminal.show();
       terminal.sendText(
-        "go install github.com/tilt-dev/starlark-lsp@latest",
+        "go install github.com/tilt-dev/starlark-lsp/cmd/starlark-lsp@latest",
       );
     } else {
       await vscode.env.openExternal(
