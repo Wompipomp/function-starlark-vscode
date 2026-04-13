@@ -6,7 +6,7 @@
  */
 
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
-import { BUILTIN_NAMES, SchemaIndex } from "./schema-index";
+import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES, SchemaIndex } from "./schema-index";
 
 /** Cached import data per document URI. */
 interface DocumentImports {
@@ -155,6 +155,7 @@ export function createScopingMiddleware(
       const beforeCursor = lineText.substring(0, pos.character);
       const nsDotMatch = beforeCursor.match(/(\w+)\.\w*$/);
       const activeNamespace = nsDotMatch ? imports.namespaces.get(nsDotMatch[1]) : undefined;
+      const isBuiltinModule = nsDotMatch ? BUILTIN_MODULE_NAMES.has(nsDotMatch[1]) : false;
 
       const isArray = Array.isArray(result);
       const items = isArray
@@ -163,6 +164,8 @@ export function createScopingMiddleware(
 
       const filtered = items.filter((item) => {
         const label = getCompletionLabel(item.label);
+        // If completing after a builtin module (e.g., "crypto."), allow all children
+        if (isBuiltinModule) return true;
         // If completing after a known namespace (e.g., "k8s."), allow its members
         if (activeNamespace?.has(label)) return true;
         // Allow flat symbols (builtins + direct imports)
@@ -203,6 +206,16 @@ export function createScopingMiddleware(
       if (imports.allowed.has(word)) return hover;
       // Check namespace membership for hover on namespace variable
       if (imports.namespaces.has(word)) return hover;
+
+      // Allow hover for builtin module children: detect "module.word" pattern on line
+      const pos = position as { line: number; character: number };
+      const lineText = text.split("\n")[pos.line] ?? "";
+      const wordEnd = pos.character;
+      // Check if word is preceded by "module." where module is a builtin module name
+      const beforeWord = lineText.substring(0, wordEnd - word.length);
+      const moduleMatch = beforeWord.match(/(\w+)\.$/);
+      if (moduleMatch && BUILTIN_MODULE_NAMES.has(moduleMatch[1])) return hover;
+
       return undefined;
     },
 

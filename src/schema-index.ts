@@ -57,6 +57,20 @@ export const BUILTIN_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The subset of BUILTIN_NAMES that are module names (not functions or variables).
+ * Used by middleware to detect builtin module dot-completion contexts like "crypto."
+ * and allow all child completions/hover through without filtering.
+ */
+export const BUILTIN_MODULE_NAMES: ReadonlySet<string> = new Set([
+  "crypto",
+  "dict",
+  "encoding",
+  "regex",
+  "yaml",
+  "json",
+]);
+
+/**
  * Extract top-level def names and schema() assignments from .star file content.
  *
  * Matches:
