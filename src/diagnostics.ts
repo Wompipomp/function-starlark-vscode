@@ -9,6 +9,7 @@
 import * as vscode from "vscode";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { BUILTIN_NAMES, SchemaIndex } from "./schema-index";
+import { maskStringsAndComments } from "./text-utils";
 
 /** Diagnostic source identifier for this provider. */
 const DIAGNOSTIC_SOURCE = "functionStarlark";
@@ -76,12 +77,14 @@ export class MissingImportDiagnosticProvider implements vscode.CodeActionProvide
     const allSchemaSymbols = this.schemaIndex.getAllSymbols();
 
     // Scan for PascalCase function calls — both bare and namespace-qualified
+    // Use masked text so constructors inside strings/comments are not matched
+    const masked = maskStringsAndComments(text);
     const callRe = /\b(?:(\w+)\.)?([A-Z]\w*)\s*\(/g;
     const diagnostics: vscode.Diagnostic[] = [];
     const seen = new Set<string>();
 
     let match: RegExpExecArray | null;
-    while ((match = callRe.exec(text)) !== null) {
+    while ((match = callRe.exec(masked)) !== null) {
       const nsPrefix = match[1]; // undefined for bare calls, "k8s" for k8s.Deployment(
       const symbolName = match[2];
       const fullMatch = nsPrefix ? `${nsPrefix}.${symbolName}` : symbolName;

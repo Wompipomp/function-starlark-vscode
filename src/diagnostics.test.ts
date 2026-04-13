@@ -336,6 +336,100 @@ describe("MissingImportDiagnosticProvider", () => {
     });
   });
 
+  describe("string and comment false-positive suppression", () => {
+    it("does not flag constructor call inside double-quoted string", () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        'x = "Deployment(name)"\n',
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
+    it("does not flag constructor call inside single-quoted string", () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        "x = 'Deployment(name)'\n",
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
+    it("does not flag constructor call inside triple-quoted string", () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        'x = """Deployment(name)"""\n',
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
+    it("does not flag constructor call after # comment", () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        "# Deployment(name)\n",
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(diagnostics).toHaveLength(0);
+    });
+
+    it("flags real constructor call but not one inside string", () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+      });
+      const diagCollection = createMockDiagnosticCollection();
+      const provider = new MissingImportDiagnosticProvider(index, diagCollection);
+
+      const doc = createMockDocument(
+        "test://file.star",
+        'x = "Deployment(name)"\nres = StatefulSet("y")\n',
+      );
+      provider.updateDiagnostics(doc);
+
+      const [, diagnostics] = (diagCollection.set as ReturnType<typeof vi.fn>).mock.calls[0];
+      // Only StatefulSet (real call) should be flagged, not Deployment (inside string)
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0].message).toContain("StatefulSet");
+    });
+  });
+
   describe("dispose", () => {
     it("clears the diagnostic collection on dispose", () => {
       const index = createMockSchemaIndex({});
