@@ -13,10 +13,10 @@ import { parseSchemas, type ParsedSchema } from "./schema-stubs";
  * All builtin names from function-starlark that always pass through
  * middleware filtering regardless of load() statements.
  *
- * 15 functions + 6 variables = 21 total.
+ * 22 functions + 6 variables + 6 modules = 34 total.
  */
 export const BUILTIN_NAMES: ReadonlySet<string> = new Set([
-  // Functions
+  // Functions (15 original)
   "Resource",
   "skip_resource",
   "get",
@@ -32,6 +32,14 @@ export const BUILTIN_NAMES: ReadonlySet<string> = new Set([
   "require_extra_resources",
   "schema",
   "field",
+  // Functions (7 new)
+  "get_extra_resource",
+  "get_extra_resources",
+  "is_observed",
+  "observed_body",
+  "get_condition",
+  "set_response_ttl",
+  "struct",
   // Variables
   "oxr",
   "dxr",
@@ -39,6 +47,13 @@ export const BUILTIN_NAMES: ReadonlySet<string> = new Set([
   "context",
   "environment",
   "extra_resources",
+  // Modules
+  "crypto",
+  "dict",
+  "encoding",
+  "regex",
+  "yaml",
+  "json",
 ]);
 
 /**

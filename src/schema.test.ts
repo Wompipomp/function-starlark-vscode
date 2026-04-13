@@ -193,7 +193,7 @@ describe("startLsp schema integration", () => {
     }
 
     expect(builtinPathValues).toHaveLength(2);
-    expect(builtinPathValues[0]).toContain("builtins.py");
+    expect(builtinPathValues[0]).toMatch(/starlark$/);
     expect(builtinPathValues[1]).toBe("/mock/global/storage"); // schemaDir as directory
   });
 });
@@ -600,9 +600,9 @@ describe("schemas.enabled=false at startup gating", () => {
       }
     }
 
-    // Only builtins.py, no schema dir
+    // Only builtins dir, no schema dir
     expect(builtinPathValues).toHaveLength(1);
-    expect(builtinPathValues[0]).toContain("builtins.py");
+    expect(builtinPathValues[0]).toMatch(/starlark$/);
   });
 
   it("does not call mkdirSync for schema dir when schemas.enabled=false", async () => {
@@ -689,7 +689,7 @@ describe("schemas.enabled runtime toggle", () => {
       }
     }
     expect(builtinPathValues).toHaveLength(1);
-    expect(builtinPathValues[0]).toContain("builtins.py");
+    expect(builtinPathValues[0]).toMatch(/starlark$/);
   });
 
   it("toggle false->true: creates SchemaIndex, OciDownloader, and client with schema dir", async () => {
@@ -732,7 +732,7 @@ describe("schemas.enabled runtime toggle", () => {
       }
     }
     expect(builtinPathValues).toHaveLength(2);
-    expect(builtinPathValues[0]).toContain("builtins.py");
+    expect(builtinPathValues[0]).toMatch(/starlark$/);
     expect(builtinPathValues[1]).toBe("/mock/global/storage");
   });
 });

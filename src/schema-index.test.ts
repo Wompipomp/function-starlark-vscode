@@ -21,11 +21,11 @@ const mockedReadFileSync = vi.mocked(fs.readFileSync);
 const mockedStatSync = vi.mocked(fs.statSync);
 
 describe("BUILTIN_NAMES", () => {
-  it("contains exactly 21 builtin names", () => {
-    expect(BUILTIN_NAMES.size).toBe(21);
+  it("contains exactly 34 builtin names", () => {
+    expect(BUILTIN_NAMES.size).toBe(34);
   });
 
-  it("contains all builtin function names", () => {
+  it("contains all original builtin function names", () => {
     const functions = [
       "Resource",
       "skip_resource",
@@ -50,6 +50,23 @@ describe("BUILTIN_NAMES", () => {
     }
   });
 
+  it("contains all new builtin function names", () => {
+    const newFunctions = [
+      "get_extra_resource",
+      "get_extra_resources",
+      "is_observed",
+      "observed_body",
+      "get_condition",
+      "set_response_ttl",
+      "struct",
+    ];
+    for (const fn of newFunctions) {
+      expect(BUILTIN_NAMES.has(fn), `missing new builtin function: ${fn}`).toBe(
+        true,
+      );
+    }
+  });
+
   it("contains all builtin variable names", () => {
     const variables = [
       "oxr",
@@ -61,6 +78,22 @@ describe("BUILTIN_NAMES", () => {
     ];
     for (const v of variables) {
       expect(BUILTIN_NAMES.has(v), `missing builtin variable: ${v}`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("contains all module names", () => {
+    const modules = [
+      "crypto",
+      "dict",
+      "encoding",
+      "regex",
+      "yaml",
+      "json",
+    ];
+    for (const m of modules) {
+      expect(BUILTIN_NAMES.has(m), `missing module name: ${m}`).toBe(
         true,
       );
     }

@@ -263,8 +263,8 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  const builtinsPath = path.join(context.extensionPath, "starlark", "builtins.py");
-  const args = ["start", "--builtin-paths", builtinsPath];
+  const builtinsDir = path.join(context.extensionPath, "starlark");
+  const args = ["start", "--builtin-paths", builtinsDir];
 
   if (config.get<boolean>("schemas.enabled", true)) {
     const schemaDir = getSchemaCachePath(context);
