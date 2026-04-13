@@ -683,6 +683,145 @@ describe("createScopingMiddleware", () => {
       expect(result).toEqual(hoverResult);
     });
 
+    it("returns hover for field parameter name in constructor call (keyword arg context)", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "core/v1.star",
+          symbols: ["PVC"],
+          namespaces: [],
+          fullPath: "schemas-k8s:v1.31/core/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/core/v1.star": new Set(["PVC"]),
+      });
+      const text = 'load("schemas-k8s:v1.31/core/v1.star", "PVC")\nPVC(accessMode="RWO")\n';
+      const doc = createMockDocument("test://file.star", text, "accessMode");
+
+      const hoverResult = { contents: "accessMode docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(1, 6) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("returns hover for keyword arg after comma in constructor call", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "core/v1.star",
+          symbols: ["PVC"],
+          namespaces: [],
+          fullPath: "schemas-k8s:v1.31/core/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/core/v1.star": new Set(["PVC"]),
+      });
+      const text = 'PVC(accessMode="RWO", storageClass="gp3")\n';
+      const doc = createMockDocument("test://file.star", text, "storageClass");
+
+      const hoverResult = { contents: "storageClass docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 25) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("returns hover for keyword arg in multi-line constructor call", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "core/v1.star",
+          symbols: ["PVC"],
+          namespaces: [],
+          fullPath: "schemas-k8s:v1.31/core/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/core/v1.star": new Set(["PVC"]),
+      });
+      const text = 'PVC(\n  accessMode="RWO",\n)\n';
+      const doc = createMockDocument("test://file.star", text, "accessMode");
+
+      const hoverResult = { contents: "accessMode docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(1, 4) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("returns hover for keyword arg in namespace-qualified call", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "core/v1.star",
+          symbols: [],
+          namespaces: [{ name: "k8s", value: "*" }],
+          fullPath: "schemas-k8s:v1.31/core/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/core/v1.star": new Set(["PVC"]),
+      });
+      const text = 'k8s.PVC(accessMode="RWO")\n';
+      const doc = createMockDocument("test://file.star", text, "accessMode");
+
+      const hoverResult = { contents: "accessMode docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 10) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("returns undefined when LSP returns null for keyword arg position", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'PVC(accessMode="RWO")\n';
+      const doc = createMockDocument("test://file.star", text, "accessMode");
+
+      const next = vi.fn().mockResolvedValue(null);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 6) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toBeUndefined();
+    });
+
     it("still suppresses hover for unknown symbols not in any module", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
