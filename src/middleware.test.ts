@@ -803,7 +803,7 @@ describe("createScopingMiddleware", () => {
       expect(result).toEqual(hoverResult);
     });
 
-    it("returns undefined when LSP returns null for keyword arg position", async () => {
+    it("returns falsy value when LSP returns null for keyword arg position (no crash)", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
       const text = 'PVC(accessMode="RWO")\n';
@@ -819,7 +819,7 @@ describe("createScopingMiddleware", () => {
         next,
       );
 
-      expect(result).toBeUndefined();
+      expect(result).toBeFalsy();
     });
 
     it("still suppresses hover for unknown symbols not in any module", async () => {

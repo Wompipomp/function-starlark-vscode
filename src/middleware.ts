@@ -114,6 +114,52 @@ export function clearAllDocumentImports(): void {
   documentImportsCache.clear();
 }
 
+/**
+ * Detect whether the cursor is on a keyword-argument name inside a function
+ * call, e.g., `PVC(accessMode=...)` or a multi-line variant.
+ *
+ * Returns true when the word at the cursor is likely a parameter name in a
+ * function/constructor call context — meaning it should not be suppressed
+ * by the hover middleware even though it is not in the allowed symbols set.
+ */
+function isInKeywordArgContext(
+  beforeWord: string,
+  fullText: string,
+  currentLine: number,
+): boolean {
+  // Single-line: word is right after "Func(" or "ns.Func("
+  // e.g., beforeWord = "PVC(" or "k8s.PVC("
+  if (/\w\s*\(\s*$/.test(beforeWord)) return true;
+
+  // Single-line: word is after a comma (second+ kwarg on same line)
+  // e.g., beforeWord = 'PVC(accessMode="RWO", '
+  if (/,\s*$/.test(beforeWord)) return true;
+
+  // Multi-line: beforeWord is whitespace-only (indented kwarg on its own line).
+  // Scan upward to find an unclosed open-paren belonging to a call.
+  if (/^\s*$/.test(beforeWord)) {
+    const lines = fullText.split("\n");
+    let depth = 0;
+    for (let i = currentLine - 1; i >= 0 && i >= currentLine - 20; i--) {
+      const line = lines[i];
+      for (let j = line.length - 1; j >= 0; j--) {
+        if (line[j] === ")") depth++;
+        else if (line[j] === "(") {
+          depth--;
+          if (depth < 0) {
+            // Found an unclosed open paren — check if preceded by a word (function call)
+            const before = line.substring(0, j);
+            if (/\w\s*$/.test(before)) return true;
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 /** Extract the label string from a CompletionItem label (string or CompletionItemLabel). */
 function getCompletionLabel(label: string | { label: string }): string {
   return typeof label === "string" ? label : label.label;
@@ -237,6 +283,13 @@ export function createScopingMiddleware(
           md.appendMarkdown(`---\n${funcDoc.docstring}`);
           return new Hover(md);
         }
+      }
+
+      // Detect keyword-argument context: word is a parameter name inside a
+      // constructor/function call, e.g., PVC(accessMode=...) or PVC(\n  accessMode=...)
+      if (hover) {
+        const isKeywordArg = isInKeywordArgContext(beforeWord, text, pos.line);
+        if (isKeywordArg) return hover;
       }
 
       // Suppress hover for symbols that aren't allowed
