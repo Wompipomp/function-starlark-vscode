@@ -8,7 +8,7 @@ import {
   clearAllDocumentImports,
 } from "./middleware";
 import type { SchemaIndex } from "./schema-index";
-import { BUILTIN_NAMES } from "./schema-index";
+import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES } from "./schema-index";
 
 // Mock the load-parser module — keep ociRefToCacheKey real, only mock parseLoadStatements
 vi.mock("./load-parser", async (importOriginal) => {
@@ -372,6 +372,104 @@ describe("createScopingMiddleware", () => {
       expect(labels).not.toContain("Unknown");
     });
 
+    it("allows all children when completing after a builtin module (e.g., crypto.)", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'crypto.\n';
+      const doc = createMockDocument("test://file.star", text);
+
+      const items = [
+        { label: "sha256" },
+        { label: "md5" },
+        { label: "hmac_sha256" },
+      ];
+
+      const next = vi.fn().mockResolvedValue(items);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      // Position cursor at line 0, character 7 (right after "crypto.")
+      const result = await middleware.provideCompletionItem(
+        doc as never,
+        new Position(0, 7) as never,
+        {} as never,
+        {} as never,
+        next,
+      );
+
+      expect(Array.isArray(result)).toBe(true);
+      const labels = (result as Array<{ label: string }>).map((i) => i.label);
+      expect(labels).toContain("sha256");
+      expect(labels).toContain("md5");
+      expect(labels).toContain("hmac_sha256");
+    });
+
+    it("still filters bare module child names not after a module dot (e.g., sha256 alone)", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'sha256\n';
+      const doc = createMockDocument("test://file.star", text);
+
+      const items = [
+        { label: "sha256" },
+        { label: "Resource" },
+      ];
+
+      const next = vi.fn().mockResolvedValue(items);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideCompletionItem(
+        doc as never,
+        new Position(0, 6) as never,
+        {} as never,
+        {} as never,
+        next,
+      );
+
+      expect(Array.isArray(result)).toBe(true);
+      const labels = (result as Array<{ label: string }>).map((i) => i.label);
+      expect(labels).not.toContain("sha256");
+      expect(labels).toContain("Resource");
+    });
+
+    it("still allows OCI namespace dot-completion (regression check)", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "apps/v1.star",
+          symbols: [],
+          namespaces: [{ name: "k8s", value: "*" }],
+          fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+      });
+      const text = 'load("schemas-k8s:v1.31/apps/v1.star", k8s="*")\nk8s.\n';
+      const doc = createMockDocument("test://file.star", text);
+
+      const items = [
+        { label: "Deployment" },
+        { label: "StatefulSet" },
+      ];
+
+      const next = vi.fn().mockResolvedValue(items);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      // Position: line 1, character 4 (after "k8s.")
+      const result = await middleware.provideCompletionItem(
+        doc as never,
+        new Position(1, 4) as never,
+        {} as never,
+        {} as never,
+        next,
+      );
+
+      expect(Array.isArray(result)).toBe(true);
+      const labels = (result as Array<{ label: string }>).map((i) => i.label);
+      expect(labels).toContain("Deployment");
+      expect(labels).toContain("StatefulSet");
+    });
+
     it("uses getDocumentText when available", async () => {
       const text = 'load("schemas-k8s:v1.31/apps/v1.star", "Deployment")\n';
       mockedParseLoadStatements.mockReturnValue([
@@ -456,6 +554,118 @@ describe("createScopingMiddleware", () => {
       const result = await middleware.provideHover(
         doc as never,
         new Position(0, 0) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it("returns hover for builtin module function (e.g., sha256 in crypto.sha256)", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'crypto.sha256(data)\n';
+      const doc = createMockDocument("test://file.star", text, "sha256");
+
+      const hoverResult = { contents: "sha256 docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      // Hover on "sha256" at line 0, character 13 (end of "crypto.sha256")
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 13) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("returns hover for builtin module function (e.g., base64_encode in encoding.base64_encode)", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'encoding.base64_encode(data)\n';
+      const doc = createMockDocument("test://file.star", text, "base64_encode");
+
+      const hoverResult = { contents: "base64_encode docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      // Hover on "base64_encode" at line 0, character 22 (end of "encoding.base64_encode")
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 22) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("still returns hover for flat builtins like Resource (regression check)", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'Resource("my-resource", body)\n';
+      const doc = createMockDocument("test://file.star", text, "Resource");
+
+      const hoverResult = { contents: "Resource docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 4) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("still returns hover for OCI imported symbols like Deployment (regression check)", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.31",
+          tarEntryPath: "apps/v1.star",
+          symbols: ["Deployment"],
+          namespaces: [],
+          fullPath: "schemas-k8s:v1.31/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.31/apps/v1.star": new Set(["Deployment"]),
+      });
+      const text = 'load("schemas-k8s:v1.31/apps/v1.star", "Deployment")\nDeployment()\n';
+      const doc = createMockDocument("test://file.star", text, "Deployment");
+
+      const hoverResult = { contents: "Deployment docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(1, 5) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("still suppresses hover for unknown symbols not in any module", async () => {
+      mockedParseLoadStatements.mockReturnValue([]);
+      const index = createMockSchemaIndex({});
+      const text = 'unknownFunc()\n';
+      const doc = createMockDocument("test://file.star", text, "unknownFunc");
+
+      const hoverResult = { contents: "unknownFunc docs" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(0, 5) as never,
         {} as never,
         next,
       );
