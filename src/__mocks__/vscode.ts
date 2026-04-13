@@ -175,6 +175,20 @@ export class Position {
   ) {}
 }
 
+export class Location {
+  constructor(
+    public uri: { fsPath: string; toString: () => string },
+    public range: Range,
+  ) {}
+}
+
+export class DiagnosticRelatedInformation {
+  constructor(
+    public location: Location,
+    public message: string,
+  ) {}
+}
+
 export const SymbolKind = {
   File: 0,
   Module: 1,
