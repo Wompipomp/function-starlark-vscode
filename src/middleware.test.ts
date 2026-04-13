@@ -38,6 +38,7 @@ function createMockSchemaIndex(
     },
     buildFromCache: vi.fn(),
     rebuild: vi.fn(),
+    getSchemaMetadata: () => undefined,
   } as unknown as SchemaIndex;
 }
 

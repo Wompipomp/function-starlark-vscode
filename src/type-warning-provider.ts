@@ -10,6 +10,7 @@ import * as vscode from "vscode";
 import { checkDocument } from "./type-checker";
 import { getDocumentImports } from "./middleware";
 import { BUILTIN_NAMES, type SchemaIndex } from "./schema-index";
+import { parseSchemas } from "./schema-stubs";
 
 /** Diagnostic source label — matches existing missing-import diagnostics for Problems panel grouping. */
 const DIAGNOSTIC_SOURCE = "functionStarlark";
@@ -51,11 +52,19 @@ export class TypeWarningProvider implements vscode.Disposable {
       }
     }
 
+    // Parse schemas defined in the current document so type-checking
+    // works for locally-defined schemas, not just cached ones.
+    const localSchemas = parseSchemas(text);
+    const localSchemaMap = new Map(localSchemas.map(s => [s.name, s]));
+    for (const s of localSchemas) {
+      importedSymbols.add(s.name);
+    }
+
     const descriptors = checkDocument(
       text,
       importedSymbols,
       imports.namespaces,
-      (symbolName) => this.schemaIndex.getSchemaMetadata(symbolName),
+      (symbolName) => localSchemaMap.get(symbolName) ?? this.schemaIndex.getSchemaMetadata(symbolName),
     );
 
     const diagnostics = descriptors.map((d) => {

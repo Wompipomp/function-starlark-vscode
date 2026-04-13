@@ -8,6 +8,7 @@
 import { Hover, MarkdownString } from "vscode";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES, BUILTIN_MODULE_CHILDREN, type BuiltinFuncDoc, SchemaIndex } from "./schema-index";
+import { parseSchemas } from "./schema-stubs";
 
 /** Cached import data per document URI. */
 interface DocumentImports {
@@ -160,6 +161,87 @@ function isInKeywordArgContext(
   return false;
 }
 
+/**
+ * Find the constructor name for the enclosing function call at the cursor.
+ * E.g., for beforeWord="PVC(" returns "PVC"; for multi-line, scans upward.
+ */
+function findEnclosingConstructor(
+  beforeWord: string,
+  fullText: string,
+  currentLine: number,
+): string | undefined {
+  // Single-line: "PVC(" or "ns.PVC("
+  const singleLine = beforeWord.match(/(\w+)\s*\(\s*$/);
+  if (singleLine) return singleLine[1];
+
+  // After comma: "PVC(x="a", " — scan back on same line for the call
+  const commaLine = beforeWord.match(/(\w+)\s*\(/);
+  if (commaLine) return commaLine[1];
+
+  // Multi-line: scan upward
+  if (/^\s*$/.test(beforeWord)) {
+    const lines = fullText.split("\n");
+    let depth = 0;
+    for (let i = currentLine - 1; i >= 0 && i >= currentLine - 20; i--) {
+      const line = lines[i];
+      for (let j = line.length - 1; j >= 0; j--) {
+        if (line[j] === ")") depth++;
+        else if (line[j] === "(") {
+          depth--;
+          if (depth < 0) {
+            const before = line.substring(0, j);
+            const m = before.match(/(\w+)\s*$/);
+            return m ? m[1] : undefined;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Build hover content for a field parameter from schema metadata.
+ * Checks both the SchemaIndex (cached schemas) and locally-defined schemas.
+ */
+function buildFieldHover(
+  fieldName: string,
+  beforeWord: string,
+  fullText: string,
+  currentLine: number,
+  schemaIdx: SchemaIndex,
+): Hover | undefined {
+  const ctorName = findEnclosingConstructor(beforeWord, fullText, currentLine);
+  if (!ctorName) return undefined;
+
+  // Check cached schemas first, then local
+  let schema = schemaIdx.getSchemaMetadata(ctorName);
+  if (!schema) {
+    const localSchemas = parseSchemas(fullText);
+    schema = localSchemas.find(s => s.name === ctorName);
+  }
+  if (!schema) return undefined;
+
+  const field = schema.fields.find(f => f.name === fieldName);
+  if (!field) return undefined;
+
+  const md = new MarkdownString();
+  const typePart = field.type ? `: ${field.type}` : "";
+  const reqPart = field.required ? " (required)" : "";
+  md.appendCodeblock(`${fieldName}${typePart}${reqPart}`, "python");
+
+  const parts: string[] = [];
+  if (field.doc) parts.push(field.doc);
+  if (field.enum.length > 0) {
+    parts.push(`Allowed: ${field.enum.map(v => `\`"${v}"\``).join(", ")}`);
+  }
+  if (parts.length > 0) {
+    md.appendMarkdown("---\n" + parts.join(parts[0]?.endsWith(".") ? " " : ". "));
+  }
+
+  return new Hover(md);
+}
+
 /** Extract the label string from a CompletionItem label (string or CompletionItemLabel). */
 function getCompletionLabel(label: string | { label: string }): string {
   return typeof label === "string" ? label : label.label;
@@ -287,9 +369,13 @@ export function createScopingMiddleware(
 
       // Detect keyword-argument context: word is a parameter name inside a
       // constructor/function call, e.g., PVC(accessMode=...) or PVC(\n  accessMode=...)
-      if (hover) {
-        const isKeywordArg = isInKeywordArgContext(beforeWord, text, pos.line);
-        if (isKeywordArg) return hover;
+      const isKeywordArg = isInKeywordArgContext(beforeWord, text, pos.line);
+      if (isKeywordArg) {
+        if (hover) return hover;
+        // LSP returned null — construct hover from schema metadata
+        // (local schemas have no LSP stubs)
+        const fieldHover = buildFieldHover(word, beforeWord, text, pos.line, schemaIndex);
+        if (fieldHover) return fieldHover;
       }
 
       // Suppress hover for symbols that aren't allowed
