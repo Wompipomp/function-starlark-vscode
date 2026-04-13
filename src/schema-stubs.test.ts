@@ -360,6 +360,82 @@ describe("extractTypeParam", () => {
   });
 });
 
+describe("parseSchemas - line tracking", () => {
+  it("returns nameLine=0 for a single schema on line 0", () => {
+    const content = `Account = schema(
+    "Account",
+    doc="An account.",
+    name=field(type="string", doc="The name."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].nameLine).toBe(0);
+  });
+
+  it("returns correct nameLine for second schema after blank line", () => {
+    const content = `A = schema(
+    "A",
+    doc="First.",
+    x=field(type="string", doc="X."),
+)
+
+B = schema(
+    "B",
+    doc="Second.",
+    y=field(type="int", doc="Y."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(2);
+    expect(schemas[0].nameLine).toBe(0);
+    expect(schemas[1].nameLine).toBe(6);
+  });
+
+  it("returns correct field.line for each field in a schema", () => {
+    const content = `Account = schema(
+    "Account",
+    doc="An account.",
+    name=field(type="string", doc="The name."),
+    location=field(type="string", required=True, doc="The location."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas[0].fields[0].line).toBe(3);
+    expect(schemas[0].fields[1].line).toBe(4);
+  });
+
+  it("multi-line field definition — field.line points to the fieldName=field( line", () => {
+    const content = `PVC = schema(
+    "PVC",
+    doc="A PVC.",
+    accessMode=field(
+        type="string",
+        enum=[
+            "ReadWriteOnce",
+            "ReadOnlyMany",
+        ],
+        doc="Access mode.",
+    ),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas[0].fields[0].line).toBe(3);
+  });
+
+  it("existing tests still pass with added line/nameLine properties (backward-compatible)", () => {
+    const content = `Deployment = schema(
+    "Deployment",
+    doc="A Deployment provides declarative updates.",
+    replicas=field(type="int", doc="int - Number of desired pods."),
+    selector=field(type=LabelSelector, required=True, doc="LabelSelector - Label query."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas[0].nameLine).toBe(0);
+    expect(schemas[0].fields[0].line).toBe(3);
+    expect(schemas[0].fields[1].line).toBe(4);
+    // Verify original properties still present
+    expect(schemas[0].fields[0].name).toBe("replicas");
+    expect(schemas[0].fields[1].name).toBe("selector");
+  });
+});
+
 describe("parseSchemas - multi-line and single-quoted", () => {
   it("populates enum from multi-line field() definition", () => {
     const content = `PVC = schema(
