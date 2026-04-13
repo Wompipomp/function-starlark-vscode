@@ -336,6 +336,77 @@ describe("checkDocument - string and comment masking", () => {
   });
 });
 
+// --- schemaName/fieldName on DiagnosticDescriptor ---
+
+describe("checkDocument - schemaName and fieldName", () => {
+  it("missing-field diagnostic carries schemaName and fieldName", () => {
+    const text = `Account(name="foo")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const missing = diags.filter((d) => d.kind === "missing-field");
+
+    expect(missing).toHaveLength(1);
+    expect(missing[0].schemaName).toBe("Account");
+    expect(missing[0].fieldName).toBe("location");
+  });
+
+  it("unknown-field diagnostic carries schemaName and fieldName is undefined", () => {
+    const text = `Account(name="foo", locaiton="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const unknown = diags.filter((d) => d.kind === "unknown-field");
+
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0].schemaName).toBe("Account");
+    expect(unknown[0].fieldName).toBeUndefined();
+  });
+
+  it("type-mismatch diagnostic carries schemaName and fieldName", () => {
+    const text = `Account(name=42, location="us-east")`;
+    const imported = new Set(["Account"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const mismatch = diags.filter((d) => d.kind === "type-mismatch");
+
+    expect(mismatch).toHaveLength(1);
+    expect(mismatch[0].schemaName).toBe("Account");
+    expect(mismatch[0].fieldName).toBe("name");
+  });
+
+  it("enum-mismatch diagnostic carries schemaName and fieldName", () => {
+    const text = `PVC(accessMode="bad")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    expect(enumDiags[0].schemaName).toBe("PVC");
+    expect(enumDiags[0].fieldName).toBe("accessMode");
+  });
+
+  it("namespace-qualified calls use unqualified symbol name as schemaName", () => {
+    const text = `storage.Account(name="foo")`;
+    const imported = new Set<string>();
+    const ns = new Map<string, Set<string>>([
+      ["storage", new Set(["Account"])],
+    ]);
+
+    const diags = checkDocument(text, imported, ns, getMetadata);
+    const missing = diags.filter((d) => d.kind === "missing-field");
+
+    expect(missing).toHaveLength(1);
+    expect(missing[0].schemaName).toBe("Account");
+    expect(missing[0].fieldName).toBe("location");
+  });
+});
+
 // --- Enum validation tests ---
 
 const pvcSchema = makeMetadata("PVC", [
