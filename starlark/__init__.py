@@ -359,3 +359,146 @@ def field(type=None, required=False, default=None, enum=None, doc=None, items=No
         A field descriptor.
     """
     pass
+
+# ---------------------------------------------------------------------------
+# Extra resource access
+# ---------------------------------------------------------------------------
+
+def get_extra_resource(name, path=None, default=None):
+    """Get a value from a single extra resource by requirement name.
+
+    Looks up the first matching resource from extra_resources[name],
+    then optionally traverses a dot-path within it.
+
+    Args:
+        name: Requirement name (the key used in require_extra_resource).
+        path: Dot-separated path string to traverse within the resource.
+            None returns the entire resource dict (default: None).
+        default: Value to return if the resource or path is not found
+            (default: None).
+
+    Returns:
+        The value at the path within the extra resource, or default.
+    """
+    pass
+
+
+def get_extra_resources(name, path=None, default=[]):
+    """Get values from multiple extra resources by requirement name.
+
+    Looks up all matching resources from extra_resources[name], then
+    optionally traverses a dot-path within each one.
+
+    Args:
+        name: Requirement name (the key used in require_extra_resources).
+        path: Dot-separated path string to traverse within each resource.
+            None returns the entire resource dicts (default: None).
+        default: Value to return if the requirement name is not found
+            (default: []).
+
+    Returns:
+        List of values at the path within each matching resource,
+        or default if the requirement name is not found.
+    """
+    pass
+
+# ---------------------------------------------------------------------------
+# Observed resource helpers
+# ---------------------------------------------------------------------------
+
+def is_observed(name):
+    """Check whether an observed composed resource exists.
+
+    Returns True if a resource with the given name exists in the
+    observed dict, False otherwise. Useful for conditional logic
+    on first reconciliation when resources have not yet been created.
+
+    Args:
+        name: Observed resource name to check.
+
+    Returns:
+        True if the resource exists in observed, False otherwise.
+    """
+    pass
+
+
+def observed_body(name, default=None):
+    """Get the full body of an observed composed resource.
+
+    Returns the entire resource manifest dict for the given name,
+    or default if the resource is not found.
+
+    Args:
+        name: Observed resource name.
+        default: Value to return if the resource is not found
+            (default: None).
+
+    Returns:
+        The full resource dict, or default.
+    """
+    pass
+
+# ---------------------------------------------------------------------------
+# Condition access
+# ---------------------------------------------------------------------------
+
+def get_condition(name, type):
+    """Get a status condition from an observed composed resource.
+
+    Looks up the status condition matching the given type on the
+    observed resource identified by name. Returns None if the
+    resource or condition type is not found.
+
+    Args:
+        name: Observed resource name.
+        type: Condition type to look up (e.g., "Ready", "Synced").
+
+    Returns:
+        Dict with condition fields (type, status, reason, message,
+        lastTransitionTime), or None if not found.
+    """
+    pass
+
+# ---------------------------------------------------------------------------
+# Response TTL
+# ---------------------------------------------------------------------------
+
+def set_response_ttl(duration):
+    """Set the response time-to-live for this composition reconciliation.
+
+    Tells Crossplane how long to wait before re-reconciling this
+    composition. Accepts a Go duration string (e.g., "5m", "1h30m")
+    or an integer number of seconds.
+
+    Args:
+        duration: TTL as a Go duration string (e.g., "5m", "1h",
+            "30s") or an integer number of seconds.
+
+    Returns:
+        None
+    """
+    pass
+
+# ---------------------------------------------------------------------------
+# Struct constructor
+# ---------------------------------------------------------------------------
+
+def struct(**kwargs):
+    """Create an immutable struct from keyword arguments.
+
+    Constructs a lightweight immutable record type where each keyword
+    argument becomes an attribute. Attributes are accessible via dot
+    notation (e.g., s.name). The struct is hashable and can be used
+    as a dict key.
+
+    This is function-starlark's Go struct implementation
+    (starlarkstruct.Make), not the standard Starlark struct.
+
+    Args:
+        **kwargs: Attribute name-value pairs for the struct. Each
+            keyword argument becomes a read-only attribute.
+
+    Returns:
+        An immutable struct with the given attributes.
+    """
+    pass
