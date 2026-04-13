@@ -19,7 +19,7 @@ export interface DiagnosticDescriptor {
   /** Human-readable diagnostic message */
   message: string;
   /** Diagnostic kind for classification */
-  kind: "missing-field" | "type-mismatch" | "unknown-field";
+  kind: "missing-field" | "type-mismatch" | "unknown-field" | "enum-mismatch";
 }
 
 /** Schema metadata needed for type checking. */
@@ -311,23 +311,43 @@ export function checkDocument(
         continue;
       }
 
-      // Type mismatch checking
-      if (!field.type) continue; // No type info, skip
-
       const literalType = detectLiteralType(arg.valueText);
       // None is a valid sentinel for optional fields in Starlark
       if (literalType === "None" && !field.required) continue;
-      if (!isTypeCompatible(field.type, literalType)) {
-        const pos = offsetToLineChar(text, arg.valueOffset);
-        // Compute the trimmed value length for the squiggle
-        const trimmedValue = arg.valueText.trim();
-        diagnostics.push({
-          line: pos.line,
-          startChar: pos.char,
-          endChar: pos.char + trimmedValue.length,
-          message: `Field "${arg.name}" expects ${field.type}, got ${literalType}`,
-          kind: "type-mismatch",
-        });
+
+      // Type mismatch checking
+      let typeOk = true;
+      if (field.type) {
+        if (!isTypeCompatible(field.type, literalType)) {
+          typeOk = false;
+          const pos = offsetToLineChar(text, arg.valueOffset);
+          // Compute the trimmed value length for the squiggle
+          const trimmedValue = arg.valueText.trim();
+          diagnostics.push({
+            line: pos.line,
+            startChar: pos.char,
+            endChar: pos.char + trimmedValue.length,
+            message: `Field "${arg.name}" expects ${field.type}, got ${literalType}`,
+            kind: "type-mismatch",
+          });
+        }
+      }
+
+      // Enum validation: only for string literals against non-empty enum lists
+      // Type-mismatch takes priority -- skip enum check if type check failed
+      if (typeOk && field.enum.length > 0 && literalType === "string") {
+        const rawValue = arg.valueText.trim().replace(/^["']|["']$/g, "");
+        if (!field.enum.includes(rawValue)) {
+          const pos = offsetToLineChar(text, arg.valueOffset);
+          const trimmedValue = arg.valueText.trim();
+          diagnostics.push({
+            line: pos.line,
+            startChar: pos.char,
+            endChar: pos.char + trimmedValue.length,
+            message: `Invalid value "${rawValue}" for field "${arg.name}" \u2014 allowed: ${field.enum.map(v => `"${v}"`).join(", ")}`,
+            kind: "enum-mismatch",
+          });
+        }
       }
     }
   }
