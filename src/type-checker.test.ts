@@ -335,3 +335,161 @@ describe("checkDocument - string and comment masking", () => {
     expect(diags.filter((d) => d.kind === "missing-field")).toHaveLength(0);
   });
 });
+
+// --- Enum validation tests ---
+
+const pvcSchema = makeMetadata("PVC", [
+  { name: "accessMode", type: "string", required: false, enum: ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"] },
+  { name: "storageClass", type: "string", required: false },
+]);
+
+const mixedSchema = makeMetadata("Mixed", [
+  { name: "mode", type: "int", required: false, enum: ["read", "write"] },
+]);
+
+const untypedEnumSchema = makeMetadata("UntypedEnum", [
+  { name: "level", type: "", required: false, enum: ["low", "medium", "high"] },
+]);
+
+function getMetadataWithEnum(symbolName: string): SchemaMetadata | undefined {
+  if (symbolName === "Account") return accountSchema;
+  if (symbolName === "Deployment") return deploymentSchema;
+  if (symbolName === "PVC") return pvcSchema;
+  if (symbolName === "Mixed") return mixedSchema;
+  if (symbolName === "UntypedEnum") return untypedEnumSchema;
+  return undefined;
+}
+
+describe("checkDocument - enum validation", () => {
+  it("reports enum-mismatch for invalid string literal on enum field", () => {
+    const text = `PVC(accessMode="ReadWrite")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    expect(enumDiags[0].message).toBe(
+      'Invalid value "ReadWrite" for field "accessMode" \u2014 allowed: "ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"',
+    );
+  });
+
+  it("produces no diagnostic for valid enum value", () => {
+    const text = `PVC(accessMode="ReadWriteOnce")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+    expect(enumDiags).toHaveLength(0);
+  });
+
+  it("produces no diagnostic for variable/expression on enum field", () => {
+    const text = `PVC(accessMode=my_mode)`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+    expect(enumDiags).toHaveLength(0);
+  });
+
+  it("produces no diagnostic for None on optional enum field", () => {
+    const text = `PVC(accessMode=None)`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+    expect(enumDiags).toHaveLength(0);
+  });
+
+  it("type-mismatch takes priority over enum-mismatch (no double diagnostics)", () => {
+    // Mixed has type="int" and enum=["read", "write"] -- passing a string fails type check first
+    const text = `Mixed(mode="read")`;
+    const imported = new Set(["Mixed"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const typeDiags = diags.filter((d) => d.kind === "type-mismatch");
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(typeDiags).toHaveLength(1);
+    expect(enumDiags).toHaveLength(0);
+  });
+
+  it("reports enum-mismatch when field has no type= but has enum=", () => {
+    const text = `UntypedEnum(level="critical")`;
+    const imported = new Set(["UntypedEnum"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    expect(enumDiags[0].message).toBe(
+      'Invalid value "critical" for field "level" \u2014 allowed: "low", "medium", "high"',
+    );
+  });
+
+  it("squiggle covers the value text, not the field name", () => {
+    const text = `PVC(accessMode="ReadWrite")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    // 'PVC(accessMode=' is 15 chars, '"ReadWrite"' is 11 chars
+    expect(enumDiags[0].startChar).toBe(15);
+    expect(enumDiags[0].endChar).toBe(26);
+  });
+
+  it("diagnostic kind is enum-mismatch", () => {
+    const text = `PVC(accessMode="bad")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    expect(enumDiags[0].kind).toBe("enum-mismatch");
+  });
+
+  it("case-sensitive comparison: lowercase does not match PascalCase", () => {
+    const text = `PVC(accessMode="readwriteonce")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+    expect(enumDiags).toHaveLength(1);
+  });
+
+  it("namespace-qualified constructor also validates enums", () => {
+    const text = `storage.PVC(accessMode="bad")`;
+    const imported = new Set<string>();
+    const ns = new Map<string, Set<string>>([
+      ["storage", new Set(["PVC"])],
+    ]);
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+
+    expect(enumDiags).toHaveLength(1);
+    expect(enumDiags[0].message).toContain('Invalid value "bad"');
+  });
+
+  it("no enum diagnostic for field without enum constraint", () => {
+    const text = `PVC(storageClass="gp2")`;
+    const imported = new Set(["PVC"]);
+    const ns = new Map<string, Set<string>>();
+
+    const diags = checkDocument(text, imported, ns, getMetadataWithEnum);
+    const enumDiags = diags.filter((d) => d.kind === "enum-mismatch");
+    expect(enumDiags).toHaveLength(0);
+  });
+});
