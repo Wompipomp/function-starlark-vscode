@@ -18,12 +18,16 @@ export interface ParsedField {
   required: boolean;
   doc: string;
   enum: string[];
+  /** 0-based line number of `fieldName=field(` in the source file */
+  line: number;
 }
 
 export interface ParsedSchema {
   name: string;
   doc: string;
   fields: ParsedField[];
+  /** 0-based line number of `Name = schema(` in the source file */
+  nameLine: number;
 }
 
 /**
@@ -211,6 +215,7 @@ export function parseSchemas(content: string): ParsedSchema[] {
 
   while ((match = schemaRe.exec(content)) !== null) {
     const name = match[1];
+    const nameLine = content.substring(0, match.index).split("\n").length - 1;
     const openParen = match.index + match[0].length - 1;
     const closeParen = findMatchingParen(content, openParen);
     if (closeParen < 0) continue;
@@ -231,6 +236,9 @@ export function parseSchemas(content: string): ParsedSchema[] {
       // Skip schema-level params that aren't fields
       if (fieldName === "doc" || fieldName === "name") continue;
 
+      const fieldAbsOffset = openParen + 1 + fieldMatch.index;
+      const fieldLine = content.substring(0, fieldAbsOffset).split("\n").length - 1;
+
       const fieldOpenParen =
         fieldMatch.index + fieldMatch[0].length - 1 + openParen + 1;
       const fieldCloseParen = findMatchingParen(content, fieldOpenParen);
@@ -244,10 +252,11 @@ export function parseSchemas(content: string): ParsedSchema[] {
         required: isRequired(fieldBody),
         doc: extractStringParam(fieldBody, "doc"),
         enum: extractEnumParam(fieldBody),
+        line: fieldLine,
       });
     }
 
-    schemas.push({ name, doc, fields });
+    schemas.push({ name, doc, fields, nameLine });
   }
 
   return schemas;

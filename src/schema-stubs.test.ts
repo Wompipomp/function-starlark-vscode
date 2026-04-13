@@ -20,6 +20,7 @@ describe("parseSchemas", () => {
       required: false,
       doc: "int - Number of desired pods.",
       enum: [],
+      line: 3,
     });
     expect(schemas[0].fields[1]).toEqual({
       name: "selector",
@@ -27,6 +28,7 @@ describe("parseSchemas", () => {
       required: true,
       doc: "LabelSelector - Label query.",
       enum: [],
+      line: 4,
     });
   });
 
@@ -394,7 +396,7 @@ B = schema(
     const content = `Account = schema(
     "Account",
     doc="An account.",
-    name=field(type="string", doc="The name."),
+    title=field(type="string", doc="The title."),
     location=field(type="string", required=True, doc="The location."),
 )`;
     const schemas = parseSchemas(content);
