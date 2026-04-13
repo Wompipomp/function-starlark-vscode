@@ -55,7 +55,7 @@ function extractStringParam(text: string, param: string): string {
  * Extract the type= value from a field() call.
  * Can be a string literal ("string") or a bare reference (ObjectMeta).
  */
-function extractTypeParam(fieldText: string): string {
+export function extractTypeParam(fieldText: string): string {
   const match = fieldText.match(/type=("([^"]*)"|([\w]+))/);
   if (!match) return "";
   return match[2] ?? match[3] ?? "";

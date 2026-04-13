@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSchemas, generateStub, parseFunctions, generateFunctionStub, extractEnumParam } from "./schema-stubs";
+import { parseSchemas, generateStub, parseFunctions, generateFunctionStub, extractEnumParam, extractTypeParam } from "./schema-stubs";
 
 describe("parseSchemas", () => {
   it("parses a simple schema with fields", () => {
@@ -322,5 +322,82 @@ describe("generateStub - enum hover docs", () => {
     const stub = generateStub(schemas);
     expect(stub).not.toContain("Allowed:");
     expect(stub).toContain("storageClass(string): Storage class.");
+  });
+});
+
+describe("extractEnumParam - multi-line and single-quoted", () => {
+  it("extracts enum values from multi-line array", () => {
+    const fieldText = `type="string", enum=[
+  "ReadWriteOnce",
+  "ReadOnlyMany",
+  "ReadWriteMany"
+], doc="Access mode."`;
+    expect(extractEnumParam(fieldText)).toEqual(["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"]);
+  });
+
+  it("extracts single-quoted enum values", () => {
+    const fieldText = `type="string", enum=['ReadWriteOnce', 'ReadOnlyMany']`;
+    expect(extractEnumParam(fieldText)).toEqual(["ReadWriteOnce", "ReadOnlyMany"]);
+  });
+
+  it("extracts mixed-quote enum values", () => {
+    const fieldText = `type="string", enum=["ReadWriteOnce", 'ReadOnlyMany']`;
+    expect(extractEnumParam(fieldText)).toEqual(["ReadWriteOnce", "ReadOnlyMany"]);
+  });
+});
+
+describe("extractTypeParam", () => {
+  it("extracts single-quoted type value", () => {
+    expect(extractTypeParam(`type='string'`)).toBe("string");
+  });
+
+  it("extracts double-quoted type value (regression)", () => {
+    expect(extractTypeParam(`type="string"`)).toBe("string");
+  });
+
+  it("extracts bare reference type value (regression)", () => {
+    expect(extractTypeParam(`type=ObjectMeta`)).toBe("ObjectMeta");
+  });
+});
+
+describe("parseSchemas - multi-line and single-quoted", () => {
+  it("populates enum from multi-line field() definition", () => {
+    const content = `PVC = schema(
+    "PVC",
+    doc="A PVC.",
+    accessMode=field(
+        type="string",
+        enum=[
+            "ReadWriteOnce",
+            "ReadOnlyMany",
+            "ReadWriteMany",
+        ],
+        doc="Access mode.",
+    ),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].fields[0].enum).toEqual(["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"]);
+  });
+
+  it("populates type from single-quoted type= parameter", () => {
+    const content = `Simple = schema(
+    "Simple",
+    doc="Simple.",
+    name=field(type='string', doc='The name.'),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].fields[0].type).toBe("string");
+  });
+
+  it("populates doc from single-quoted doc= parameter", () => {
+    const content = `Simple = schema(
+    "Simple",
+    doc="Simple.",
+    name=field(type='string', doc='The name.'),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas[0].fields[0].doc).toBe("The name.");
   });
 });
