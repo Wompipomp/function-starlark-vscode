@@ -384,7 +384,7 @@ describe("parseSchemas - multi-line and single-quoted", () => {
     const content = `Simple = schema(
     "Simple",
     doc="Simple.",
-    name=field(type='string', doc='The name.'),
+    title=field(type='string', doc='The title.'),
 )`;
     const schemas = parseSchemas(content);
     expect(schemas).toHaveLength(1);
@@ -395,9 +395,9 @@ describe("parseSchemas - multi-line and single-quoted", () => {
     const content = `Simple = schema(
     "Simple",
     doc="Simple.",
-    name=field(type='string', doc='The name.'),
+    title=field(type='string', doc='The title.'),
 )`;
     const schemas = parseSchemas(content);
-    expect(schemas[0].fields[0].doc).toBe("The name.");
+    expect(schemas[0].fields[0].doc).toBe("The title.");
   });
 });

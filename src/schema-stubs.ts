@@ -31,17 +31,24 @@ export interface ParsedSchema {
  * Handles escaped quotes within the string.
  */
 function extractStringParam(text: string, param: string): string {
-  const prefix = `${param}="`;
-  const idx = text.indexOf(prefix);
-  if (idx < 0) return "";
+  // Try double-quoted first, then single-quoted
+  let quote = '"';
+  let prefix = `${param}="`;
+  let idx = text.indexOf(prefix);
+  if (idx < 0) {
+    quote = "'";
+    prefix = `${param}='`;
+    idx = text.indexOf(prefix);
+    if (idx < 0) return "";
+  }
 
   let result = "";
   let i = idx + prefix.length;
   while (i < text.length) {
-    if (text[i] === "\\" && i + 1 < text.length && text[i + 1] === '"') {
-      result += '"';
+    if (text[i] === "\\" && i + 1 < text.length && text[i + 1] === quote) {
+      result += quote;
       i += 2;
-    } else if (text[i] === '"') {
+    } else if (text[i] === quote) {
       break;
     } else {
       result += text[i];
@@ -56,9 +63,9 @@ function extractStringParam(text: string, param: string): string {
  * Can be a string literal ("string") or a bare reference (ObjectMeta).
  */
 export function extractTypeParam(fieldText: string): string {
-  const match = fieldText.match(/type=("([^"]*)"|([\w]+))/);
+  const match = fieldText.match(/type=(?:"([^"]*)"|'([^']*)'|([\w]+))/);
   if (!match) return "";
-  return match[2] ?? match[3] ?? "";
+  return match[1] ?? match[2] ?? match[3] ?? "";
 }
 
 /**
@@ -66,10 +73,10 @@ export function extractTypeParam(fieldText: string): string {
  * Returns an array of allowed string values, or [] if no enum parameter.
  */
 export function extractEnumParam(fieldText: string): string[] {
-  const match = fieldText.match(/enum=\[(.*?)\]/);
+  const match = fieldText.match(/enum=\[([\s\S]*?)\]/);
   if (!match) return [];
   const values: string[] = [];
-  const re = /"([^"]+)"/g;
+  const re = /["']([^"']+)["']/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(match[1])) !== null) {
     values.push(m[1]);
