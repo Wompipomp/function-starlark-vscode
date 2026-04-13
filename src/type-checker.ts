@@ -20,6 +20,10 @@ export interface DiagnosticDescriptor {
   message: string;
   /** Diagnostic kind for classification */
   kind: "missing-field" | "type-mismatch" | "unknown-field" | "enum-mismatch";
+  /** Unqualified schema name this diagnostic relates to (e.g., "Account") */
+  schemaName: string;
+  /** Field name this diagnostic refers to; undefined for unknown-field kind */
+  fieldName?: string;
 }
 
 /** Schema metadata needed for type checking. */
@@ -290,6 +294,8 @@ export function checkDocument(
           endChar: pos.char + symbolName.length,
           message: `Missing required field "${field.name}" in ${symbolName}()`,
           kind: "missing-field",
+          schemaName: symbolName,
+          fieldName: field.name,
         });
       }
     }
@@ -307,6 +313,7 @@ export function checkDocument(
           endChar: pos.char + arg.name.length,
           message: `Unknown field "${arg.name}" in ${symbolName}()`,
           kind: "unknown-field",
+          schemaName: symbolName,
         });
         continue;
       }
@@ -329,6 +336,8 @@ export function checkDocument(
             endChar: pos.char + trimmedValue.length,
             message: `Field "${arg.name}" expects ${field.type}, got ${literalType}`,
             kind: "type-mismatch",
+            schemaName: symbolName,
+            fieldName: arg.name,
           });
         }
       }
@@ -346,6 +355,8 @@ export function checkDocument(
             endChar: pos.char + trimmedValue.length,
             message: `Invalid value "${rawValue}" for field "${arg.name}" \u2014 allowed: ${field.enum.map(v => `"${v}"`).join(", ")}`,
             kind: "enum-mismatch",
+            schemaName: symbolName,
+            fieldName: arg.name,
           });
         }
       }
