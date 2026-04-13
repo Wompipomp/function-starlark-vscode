@@ -5,8 +5,9 @@
  * via load() statements in the current file.
  */
 
+import { Hover, MarkdownString } from "vscode";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
-import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES, SchemaIndex } from "./schema-index";
+import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES, BUILTIN_MODULE_CHILDREN, type BuiltinFuncDoc, SchemaIndex } from "./schema-index";
 
 /** Cached import data per document URI. */
 interface DocumentImports {
@@ -129,6 +130,7 @@ function getCompletionLabel(label: string | { label: string }): string {
 export function createScopingMiddleware(
   schemaIndex: SchemaIndex,
   getDocumentText: (uri: string) => string | undefined,
+  builtinModuleDocs?: Map<string, Map<string, BuiltinFuncDoc>>,
 ) {
   return {
     provideCompletionItem: async (
@@ -162,10 +164,21 @@ export function createScopingMiddleware(
         ? (result as Array<{ label: string | { label: string } }>)
         : (result as { items: Array<{ label: string | { label: string } }> }).items;
 
+      // For builtin modules, the LSP doesn't return module-specific children —
+      // it returns top-level symbols. We replace results with the actual children.
+      const activeModuleChildren = nsDotMatch && isBuiltinModule
+        ? BUILTIN_MODULE_CHILDREN.get(nsDotMatch[1])
+        : undefined;
+
+      if (activeModuleChildren) {
+        const moduleItems = [...activeModuleChildren].map((name) => ({ label: name }));
+        return isArray
+          ? moduleItems
+          : { ...(result as object), items: moduleItems };
+      }
+
       const filtered = items.filter((item) => {
         const label = getCompletionLabel(item.label);
-        // If completing after a builtin module (e.g., "crypto."), allow all children
-        if (isBuiltinModule) return true;
         // If completing after a known namespace (e.g., "k8s."), allow its members
         if (activeNamespace?.has(label)) return true;
         // Allow flat symbols (builtins + direct imports)
@@ -189,13 +202,10 @@ export function createScopingMiddleware(
       next: (...args: unknown[]) => Promise<unknown>,
     ) => {
       const hover = await next(document, position, token);
-      if (!hover) {
-        return hover;
-      }
 
       const wordRange = document.getWordRangeAtPosition(position);
       if (!wordRange) {
-        return hover;
+        return hover ?? undefined;
       }
 
       const word = document.getText(wordRange);
@@ -203,20 +213,34 @@ export function createScopingMiddleware(
       const text = getDocumentText(uri) ?? document.getText();
       const imports = getDocumentImports(uri, text, schemaIndex);
 
-      if (imports.allowed.has(word)) return hover;
-      // Check namespace membership for hover on namespace variable
-      if (imports.namespaces.has(word)) return hover;
-
-      // Allow hover for builtin module children: detect "module.word" pattern on line
       const pos = position as { line: number; character: number };
       const lineText = text.split("\n")[pos.line] ?? "";
-      const wordEnd = pos.character;
-      // Check if word is preceded by "module." where module is a builtin module name
-      const beforeWord = lineText.substring(0, wordEnd - word.length);
-      const moduleMatch = beforeWord.match(/(\w+)\.$/);
-      if (moduleMatch && BUILTIN_MODULE_NAMES.has(moduleMatch[1])) return hover;
+      const wordStart = (wordRange as { start: { character: number } }).start.character;
+      const beforeWord = lineText.substring(0, wordStart);
 
-      return undefined;
+
+      // Allow hover for symbols the user has imported or are builtins
+      if (hover && imports.allowed.has(word)) return hover;
+      if (hover && imports.namespaces.has(word)) return hover;
+
+      // Detect "module.word" pattern for builtin module children
+      const moduleMatch = beforeWord.match(/(\w+)\.$/);
+      if (moduleMatch && BUILTIN_MODULE_NAMES.has(moduleMatch[1])) {
+        // LSP returned hover — pass it through
+        if (hover) return hover;
+        // LSP returned null — construct hover from stub docs
+        const moduleName = moduleMatch[1];
+        const funcDoc = builtinModuleDocs?.get(moduleName)?.get(word);
+        if (funcDoc) {
+          const md = new MarkdownString();
+          md.appendCodeblock(`${moduleName}.${funcDoc.signature}`, "python");
+          md.appendMarkdown(`---\n${funcDoc.docstring}`);
+          return new Hover(md);
+        }
+      }
+
+      // Suppress hover for symbols that aren't allowed
+      return hover ? undefined : hover;
     },
 
     provideSignatureHelp: async (

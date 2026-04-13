@@ -867,7 +867,7 @@
             "patterns": [
                 {
                     "name": "support.function.python.starlark",
-                    "match": "(?<!\\.)\\b(all|any|bool|dict|dir|enumerate|getattr|hasattr|hash|int|len|list|load|max|min|print|range|repr|reversed|sorted|str|tuple|type|zip)\\b"
+                    "match": "(?<!\\.)\\b(all|any|bool|dir|enumerate|getattr|hasattr|hash|int|len|list|load|max|min|print|range|repr|reversed|sorted|str|tuple|type|zip)\\b"
                 }
             ]
         },

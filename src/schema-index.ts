@@ -59,7 +59,7 @@ export const BUILTIN_NAMES: ReadonlySet<string> = new Set([
 /**
  * The subset of BUILTIN_NAMES that are module names (not functions or variables).
  * Used by middleware to detect builtin module dot-completion contexts like "crypto."
- * and allow all child completions/hover through without filtering.
+ * and filter completions/hover to only that module's children.
  */
 export const BUILTIN_MODULE_NAMES: ReadonlySet<string> = new Set([
   "crypto",
@@ -69,6 +69,64 @@ export const BUILTIN_MODULE_NAMES: ReadonlySet<string> = new Set([
   "yaml",
   "json",
 ]);
+
+/**
+ * Map of builtin module name → set of child function names.
+ * Derived from the bundled starlark/*.py stub files.
+ * Used by middleware to filter dot-completions to only the actual
+ * functions belonging to the module (e.g., crypto.sha256 but not crypto.Resource).
+ */
+export const BUILTIN_MODULE_CHILDREN: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["crypto", new Set(["sha256", "sha512", "sha1", "md5", "hmac_sha256", "blake3", "stable_id"])],
+  ["dict", new Set(["merge", "deep_merge", "pick", "omit", "dig", "has_path"])],
+  ["encoding", new Set(["b64enc", "b64dec", "b64url_enc", "b64url_dec", "b32enc", "b32dec", "hex_enc", "hex_dec"])],
+  ["regex", new Set(["match", "find", "find_all", "find_groups", "replace", "replace_all", "split"])],
+  ["yaml", new Set(["encode", "decode", "decode_stream"])],
+  ["json", new Set(["encode", "decode", "encode_indent", "indent"])],
+]);
+
+/** Parsed function documentation from a builtin module stub. */
+export interface BuiltinFuncDoc {
+  /** Function signature, e.g. "sha256(data)" */
+  signature: string;
+  /** Full docstring body */
+  docstring: string;
+}
+
+/**
+ * Parse a Python stub file and extract function signatures and docstrings.
+ * Returns a map of function name → BuiltinFuncDoc.
+ */
+export function parseModuleStubDocs(content: string): Map<string, BuiltinFuncDoc> {
+  const docs = new Map<string, BuiltinFuncDoc>();
+  const funcRe = /^def\s+(\w+)\(([^)]*)\):\s*\n\s+"""([\s\S]*?)"""/gm;
+  let match: RegExpExecArray | null;
+  while ((match = funcRe.exec(content)) !== null) {
+    const name = match[1];
+    const params = match[2];
+    const docstring = match[3].trim();
+    docs.set(name, { signature: `${name}(${params})`, docstring });
+  }
+  return docs;
+}
+
+/**
+ * Load all builtin module docs from the starlark/ stub directory.
+ * Returns a map of module name → (function name → BuiltinFuncDoc).
+ */
+export function loadBuiltinModuleDocs(
+  builtinsDir: string,
+): Map<string, Map<string, BuiltinFuncDoc>> {
+  const result = new Map<string, Map<string, BuiltinFuncDoc>>();
+  for (const modName of BUILTIN_MODULE_NAMES) {
+    const filePath = path.join(builtinsDir, `${modName}.py`);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, "utf-8");
+      result.set(modName, parseModuleStubDocs(content));
+    }
+  }
+  return result;
+}
 
 /**
  * Extract top-level def names and schema() assignments from .star file content.

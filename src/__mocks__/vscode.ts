@@ -217,3 +217,32 @@ export class ThemeColor {
 export const TextEdit = {
   replace: vi.fn((range: Range, newText: string) => ({ range, newText })),
 };
+
+export class MarkdownString {
+  value: string;
+  isTrusted?: boolean;
+  constructor(value?: string) {
+    this.value = value ?? "";
+  }
+  appendCodeblock(code: string, language?: string): this {
+    this.value += `\`\`\`${language ?? ""}\n${code}\n\`\`\`\n`;
+    return this;
+  }
+  appendMarkdown(markdown: string): this {
+    this.value += markdown;
+    return this;
+  }
+  appendText(text: string): this {
+    this.value += text;
+    return this;
+  }
+}
+
+export class Hover {
+  contents: (MarkdownString | string)[];
+  range?: Range;
+  constructor(contents: MarkdownString | string | (MarkdownString | string)[], range?: Range) {
+    this.contents = Array.isArray(contents) ? contents : [contents];
+    this.range = range;
+  }
+}

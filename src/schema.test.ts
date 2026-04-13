@@ -33,6 +33,7 @@ vi.mock("./schema-index", () => {
   return {
     SchemaIndex: MockSchemaIndex,
     BUILTIN_NAMES: new Set(["Resource"]),
+    loadBuiltinModuleDocs: vi.fn().mockReturnValue(new Map()),
   };
 });
 vi.mock("./middleware", () => ({

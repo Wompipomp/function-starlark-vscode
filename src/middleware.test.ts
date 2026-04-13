@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Position, Range } from "vscode";
+import { Hover, MarkdownString, Position, Range } from "vscode";
 import {
   getAllowedSymbols,
   createScopingMiddleware,
@@ -8,7 +8,7 @@ import {
   clearAllDocumentImports,
 } from "./middleware";
 import type { SchemaIndex } from "./schema-index";
-import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES } from "./schema-index";
+import { BUILTIN_NAMES, BUILTIN_MODULE_NAMES, BUILTIN_MODULE_CHILDREN, type BuiltinFuncDoc } from "./schema-index";
 
 // Mock the load-parser module — keep ociRefToCacheKey real, only mock parseLoadStatements
 vi.mock("./load-parser", async (importOriginal) => {
@@ -56,7 +56,11 @@ function createMockDocument(
     }),
     getWordRangeAtPosition: vi.fn((pos: unknown) => {
       if (wordAtPosition) {
-        return new Range(new Position(0, 0), new Position(0, wordAtPosition.length));
+        const p = pos as { line: number; character: number };
+        const line = text.split("\n")[p.line] ?? "";
+        const idx = line.lastIndexOf(wordAtPosition, p.character);
+        const start = idx >= 0 ? idx : 0;
+        return new Range(new Position(p.line, start), new Position(p.line, start + wordAtPosition.length));
       }
       return undefined;
     }),
@@ -372,16 +376,17 @@ describe("createScopingMiddleware", () => {
       expect(labels).not.toContain("Unknown");
     });
 
-    it("allows all children when completing after a builtin module (e.g., crypto.)", async () => {
+    it("replaces LSP results with module children when completing after a builtin module (e.g., crypto.)", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
       const text = 'crypto.\n';
       const doc = createMockDocument("test://file.star", text);
 
+      // LSP returns top-level symbols, not crypto's children
       const items = [
-        { label: "sha256" },
-        { label: "md5" },
-        { label: "hmac_sha256" },
+        { label: "Resource" },
+        { label: "get" },
+        { label: "schema" },
       ];
 
       const next = vi.fn().mockResolvedValue(items);
@@ -398,9 +403,15 @@ describe("createScopingMiddleware", () => {
 
       expect(Array.isArray(result)).toBe(true);
       const labels = (result as Array<{ label: string }>).map((i) => i.label);
-      expect(labels).toContain("sha256");
-      expect(labels).toContain("md5");
-      expect(labels).toContain("hmac_sha256");
+      // Should contain all crypto module children
+      const expectedChildren = BUILTIN_MODULE_CHILDREN.get("crypto")!;
+      for (const child of expectedChildren) {
+        expect(labels, `missing crypto child: ${child}`).toContain(child);
+      }
+      // Should NOT contain top-level builtins
+      expect(labels).not.toContain("Resource");
+      expect(labels).not.toContain("get");
+      expect(labels).not.toContain("schema");
     });
 
     it("still filters bare module child names not after a module dot (e.g., sha256 alone)", async () => {
@@ -561,17 +572,22 @@ describe("createScopingMiddleware", () => {
       expect(result).toBeUndefined();
     });
 
-    it("returns hover for builtin module function (e.g., sha256 in crypto.sha256)", async () => {
+    it("constructs hover from stub docs when LSP returns null for module child (e.g., crypto.sha256)", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
       const text = 'crypto.sha256(data)\n';
       const doc = createMockDocument("test://file.star", text, "sha256");
 
-      const hoverResult = { contents: "sha256 docs" };
-      const next = vi.fn().mockResolvedValue(hoverResult);
-      const middleware = createScopingMiddleware(index, () => undefined);
+      const moduleDocs = new Map<string, Map<string, BuiltinFuncDoc>>([
+        ["crypto", new Map([
+          ["sha256", { signature: "sha256(data)", docstring: "Compute SHA-256 hash of data." }],
+        ])],
+      ]);
 
-      // Hover on "sha256" at line 0, character 13 (end of "crypto.sha256")
+      // LSP returns null — doesn't know about module children
+      const next = vi.fn().mockResolvedValue(null);
+      const middleware = createScopingMiddleware(index, () => undefined, moduleDocs);
+
       const result = await middleware.provideHover(
         doc as never,
         new Position(0, 13) as never,
@@ -579,28 +595,42 @@ describe("createScopingMiddleware", () => {
         next,
       );
 
-      expect(result).toEqual(hoverResult);
+      expect(result).toBeDefined();
+      expect(result).toBeInstanceOf(Hover);
+      const hover = result as InstanceType<typeof Hover>;
+      const md = hover.contents[0] as InstanceType<typeof MarkdownString>;
+      expect(md.value).toContain("crypto.sha256(data)");
+      expect(md.value).toContain("Compute SHA-256 hash of data.");
     });
 
-    it("returns hover for builtin module function (e.g., base64_encode in encoding.base64_encode)", async () => {
+    it("constructs hover from stub docs when LSP returns null for encoding.b64enc", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
-      const text = 'encoding.base64_encode(data)\n';
-      const doc = createMockDocument("test://file.star", text, "base64_encode");
+      const text = 'encoding.b64enc(data)\n';
+      const doc = createMockDocument("test://file.star", text, "b64enc");
 
-      const hoverResult = { contents: "base64_encode docs" };
-      const next = vi.fn().mockResolvedValue(hoverResult);
-      const middleware = createScopingMiddleware(index, () => undefined);
+      const moduleDocs = new Map<string, Map<string, BuiltinFuncDoc>>([
+        ["encoding", new Map([
+          ["b64enc", { signature: "b64enc(data)", docstring: "Encode data to standard Base64." }],
+        ])],
+      ]);
 
-      // Hover on "base64_encode" at line 0, character 22 (end of "encoding.base64_encode")
+      const next = vi.fn().mockResolvedValue(null);
+      const middleware = createScopingMiddleware(index, () => undefined, moduleDocs);
+
       const result = await middleware.provideHover(
         doc as never,
-        new Position(0, 22) as never,
+        new Position(0, 15) as never,
         {} as never,
         next,
       );
 
-      expect(result).toEqual(hoverResult);
+      expect(result).toBeDefined();
+      expect(result).toBeInstanceOf(Hover);
+      const hover = result as InstanceType<typeof Hover>;
+      const md = hover.contents[0] as InstanceType<typeof MarkdownString>;
+      expect(md.value).toContain("encoding.b64enc(data)");
+      expect(md.value).toContain("Encode data to standard Base64.");
     });
 
     it("still returns hover for flat builtins like Resource (regression check)", async () => {
@@ -673,7 +703,7 @@ describe("createScopingMiddleware", () => {
       expect(result).toBeUndefined();
     });
 
-    it("passes null/undefined results through unchanged", async () => {
+    it("returns undefined when LSP returns null and no word at position", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
       const doc = createMockDocument("test://file.star", "# empty\n");
@@ -688,7 +718,7 @@ describe("createScopingMiddleware", () => {
         next,
       );
 
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
     });
   });
 

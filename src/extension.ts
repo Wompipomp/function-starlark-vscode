@@ -16,7 +16,7 @@ import type { DocumentSymbol } from "vscode-languageserver-types";
 import { BuildifierFormatProvider } from "./buildifier";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { OciDownloader } from "./oci/downloader";
-import { SchemaIndex } from "./schema-index";
+import { SchemaIndex, loadBuiltinModuleDocs } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, clearAllDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { TypeWarningProvider } from "./type-warning-provider";
@@ -287,13 +287,14 @@ async function startLsp(context: vscode.ExtensionContext): Promise<void> {
 
   // Build middleware: always include provideDocumentSymbols fix,
   // add scoping middleware when schemas are enabled
+  const moduleDocs = loadBuiltinModuleDocs(builtinsDir);
   const scopingMiddleware = schemaIndex
     ? createScopingMiddleware(schemaIndex, (uri) => {
         for (const doc of vscode.workspace.textDocuments) {
           if (doc.uri.toString() === uri) return doc.getText();
         }
         return undefined;
-      })
+      }, moduleDocs)
     : undefined;
 
   const clientOptions: LanguageClientOptions = {
