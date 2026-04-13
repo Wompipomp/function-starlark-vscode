@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSchemas, generateStub, parseFunctions, generateFunctionStub } from "./schema-stubs";
+import { parseSchemas, generateStub, parseFunctions, generateFunctionStub, extractEnumParam } from "./schema-stubs";
 
 describe("parseSchemas", () => {
   it("parses a simple schema with fields", () => {
@@ -224,5 +224,101 @@ describe("generateFunctionStub", () => {
 
   it("returns empty string for no functions", () => {
     expect(generateFunctionStub([])).toBe("");
+  });
+});
+
+describe("extractEnumParam", () => {
+  it("extracts multiple enum values from field body", () => {
+    const fieldText = `type="string", enum=["ReadWriteOnce", "ReadOnlyMany"], doc="Access mode."`;
+    expect(extractEnumParam(fieldText)).toEqual(["ReadWriteOnce", "ReadOnlyMany"]);
+  });
+
+  it("returns empty array when no enum param present", () => {
+    const fieldText = `type="string", doc="No enum."`;
+    expect(extractEnumParam(fieldText)).toEqual([]);
+  });
+
+  it("returns empty array for empty enum list", () => {
+    const fieldText = `type="string", enum=[]`;
+    expect(extractEnumParam(fieldText)).toEqual([]);
+  });
+
+  it("extracts single enum value", () => {
+    const fieldText = `type="string", enum=["only"]`;
+    expect(extractEnumParam(fieldText)).toEqual(["only"]);
+  });
+});
+
+describe("parseSchemas - enum support", () => {
+  it("populates ParsedField.enum for fields with enum parameter", () => {
+    const content = `PVC = schema(
+    "PVC",
+    doc="A PVC.",
+    accessMode=field(type="string", enum=["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"], doc="Access mode."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].fields[0].enum).toEqual(["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany"]);
+  });
+
+  it("populates empty enum array for fields without enum parameter", () => {
+    const content = `Simple = schema(
+    "Simple",
+    doc="Simple.",
+    name=field(type="string", doc="The name."),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas[0].fields[0].enum).toEqual([]);
+  });
+});
+
+describe("generateStub - enum hover docs", () => {
+  it("appends Allowed values to Args line for enum fields", () => {
+    const schemas = [{
+      name: "PVC",
+      doc: "A PVC.",
+      fields: [
+        { name: "accessMode", type: "string", required: false, doc: "string - Access mode.", enum: ["ReadWriteOnce", "ReadOnlyMany"] },
+      ],
+    }];
+    const stub = generateStub(schemas);
+    expect(stub).toContain('Allowed: "ReadWriteOnce", "ReadOnlyMany"');
+  });
+
+  it("combines doc and enum with separator", () => {
+    const schemas = [{
+      name: "PVC",
+      doc: "A PVC.",
+      fields: [
+        { name: "accessMode", type: "string", required: false, doc: "string - Access mode.", enum: ["ReadWriteOnce", "ReadOnlyMany"] },
+      ],
+    }];
+    const stub = generateStub(schemas);
+    expect(stub).toContain('Access mode. Allowed: "ReadWriteOnce", "ReadOnlyMany"');
+  });
+
+  it("shows only Allowed when field has no doc", () => {
+    const schemas = [{
+      name: "PVC",
+      doc: "A PVC.",
+      fields: [
+        { name: "accessMode", type: "string", required: false, doc: "", enum: ["ReadWriteOnce"] },
+      ],
+    }];
+    const stub = generateStub(schemas);
+    expect(stub).toContain('accessMode(string): Allowed: "ReadWriteOnce"');
+  });
+
+  it("produces unchanged Args line when no enum values", () => {
+    const schemas = [{
+      name: "PVC",
+      doc: "A PVC.",
+      fields: [
+        { name: "storageClass", type: "string", required: false, doc: "string - Storage class.", enum: [] },
+      ],
+    }];
+    const stub = generateStub(schemas);
+    expect(stub).not.toContain("Allowed:");
+    expect(stub).toContain("storageClass(string): Storage class.");
   });
 });
