@@ -437,7 +437,7 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   schemaDisposables.push(diagCollection, codeActionReg);
 
   // Type warning provider — separate DiagnosticCollection for type-checking warnings
-  typeWarningProvider = new TypeWarningProvider(currentSchemaIndex);
+  typeWarningProvider = new TypeWarningProvider(currentSchemaIndex, cacheDir);
   schemaDisposables.push(typeWarningProvider);
 
   // Quick fix provider for missing required fields

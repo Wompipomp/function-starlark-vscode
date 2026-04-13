@@ -6,11 +6,13 @@
  * clobbering with the existing missing-import DiagnosticCollection.
  */
 
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { checkDocument } from "./type-checker";
 import { getDocumentImports } from "./middleware";
 import { BUILTIN_NAMES, type SchemaIndex } from "./schema-index";
-import { parseSchemas } from "./schema-stubs";
+import { parseSchemas, type ParsedSchema } from "./schema-stubs";
 
 /** Diagnostic source label — matches existing missing-import diagnostics for Problems panel grouping. */
 const DIAGNOSTIC_SOURCE = "functionStarlark";
@@ -25,9 +27,11 @@ const DIAGNOSTIC_SOURCE = "functionStarlark";
 export class TypeWarningProvider implements vscode.Disposable {
   private readonly diagnosticCollection: vscode.DiagnosticCollection;
   private readonly schemaIndex: SchemaIndex;
+  private readonly cacheDir: string;
 
-  constructor(schemaIndex: SchemaIndex) {
+  constructor(schemaIndex: SchemaIndex, cacheDir: string) {
     this.schemaIndex = schemaIndex;
+    this.cacheDir = cacheDir;
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection(
       "functionStarlarkTypeWarnings",
     );
@@ -79,10 +83,64 @@ export class TypeWarningProvider implements vscode.Disposable {
       );
       diag.source = DIAGNOSTIC_SOURCE;
       diag.code = d.kind;
+
+      // Attach relatedInformation linking to schema/field definition
+      const ri = this.buildRelatedInformation(d, localSchemaMap, document);
+      if (ri) {
+        diag.relatedInformation = [ri];
+      }
+
       return diag;
     });
 
     this.diagnosticCollection.set(document.uri, diagnostics);
+  }
+
+  /**
+   * Build a DiagnosticRelatedInformation linking to the schema field (or schema name)
+   * definition in the source file. Returns undefined if the source cannot be resolved.
+   */
+  private buildRelatedInformation(
+    d: { schemaName: string; fieldName?: string; kind: string },
+    localSchemaMap: Map<string, ParsedSchema>,
+    document: vscode.TextDocument,
+  ): vscode.DiagnosticRelatedInformation | undefined {
+    // Look up schema metadata — local first, then cached
+    const schema = localSchemaMap.get(d.schemaName) ?? this.schemaIndex.getSchemaMetadata(d.schemaName);
+    if (!schema) return undefined;
+
+    const isLocal = localSchemaMap.has(d.schemaName);
+
+    // Resolve target URI
+    let targetUri: vscode.Uri | undefined;
+    if (isLocal) {
+      targetUri = document.uri as vscode.Uri;
+    } else {
+      const relativePath = this.schemaIndex.getFileForSymbol(d.schemaName);
+      if (!relativePath) return undefined;
+      const absPath = path.join(this.cacheDir, relativePath);
+      if (!fs.existsSync(absPath)) return undefined;
+      targetUri = vscode.Uri.file(absPath);
+    }
+
+    // Determine target line and label
+    let targetLine: number;
+    let label: string;
+    if (d.kind === "unknown-field") {
+      targetLine = schema.nameLine;
+      label = `'${d.schemaName}' defined here`;
+    } else {
+      const field = schema.fields.find(f => f.name === d.fieldName);
+      targetLine = field ? field.line : schema.nameLine;
+      label = `'${d.fieldName}' defined here`;
+    }
+
+    const targetRange = new vscode.Range(
+      new vscode.Position(targetLine, 0),
+      new vscode.Position(targetLine, 0),
+    );
+    const location = new vscode.Location(targetUri, targetRange);
+    return new vscode.DiagnosticRelatedInformation(location, label);
   }
 
   /**
