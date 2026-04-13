@@ -19,12 +19,14 @@ describe("parseSchemas", () => {
       type: "int",
       required: false,
       doc: "int - Number of desired pods.",
+      enum: [],
     });
     expect(schemas[0].fields[1]).toEqual({
       name: "selector",
       type: "LabelSelector",
       required: true,
       doc: "LabelSelector - Label query.",
+      enum: [],
     });
   });
 
@@ -100,8 +102,8 @@ describe("generateStub", () => {
         name: "Deployment",
         doc: "A Deployment provides declarative updates.",
         fields: [
-          { name: "replicas", type: "int", required: false, doc: "int - Number of desired pods." },
-          { name: "selector", type: "LabelSelector", required: true, doc: "LabelSelector - Label query over resources." },
+          { name: "replicas", type: "int", required: false, doc: "int - Number of desired pods.", enum: [] },
+          { name: "selector", type: "LabelSelector", required: true, doc: "LabelSelector - Label query over resources.", enum: [] },
         ],
       },
     ];
@@ -117,7 +119,7 @@ describe("generateStub", () => {
   it("generates stubs for multiple schemas", () => {
     const schemas = [
       { name: "A", doc: "First.", fields: [] },
-      { name: "B", doc: "Second.", fields: [{ name: "x", type: "string", required: false, doc: "string - X." }] },
+      { name: "B", doc: "Second.", fields: [{ name: "x", type: "string", required: false, doc: "string - X.", enum: [] }] },
     ];
     const stub = generateStub(schemas);
     expect(stub).toContain("def A():");
@@ -265,7 +267,7 @@ describe("parseSchemas - enum support", () => {
     const content = `Simple = schema(
     "Simple",
     doc="Simple.",
-    name=field(type="string", doc="The name."),
+    title=field(type="string", doc="The title."),
 )`;
     const schemas = parseSchemas(content);
     expect(schemas[0].fields[0].enum).toEqual([]);

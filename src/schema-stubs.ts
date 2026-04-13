@@ -17,6 +17,7 @@ export interface ParsedField {
   type: string;
   required: boolean;
   doc: string;
+  enum: string[];
 }
 
 export interface ParsedSchema {
@@ -58,6 +59,22 @@ function extractTypeParam(fieldText: string): string {
   const match = fieldText.match(/type=("([^"]*)"|([\w]+))/);
   if (!match) return "";
   return match[2] ?? match[3] ?? "";
+}
+
+/**
+ * Extract the enum=[] values from a field() call.
+ * Returns an array of allowed string values, or [] if no enum parameter.
+ */
+export function extractEnumParam(fieldText: string): string[] {
+  const match = fieldText.match(/enum=\[(.*?)\]/);
+  if (!match) return [];
+  const values: string[] = [];
+  const re = /"([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(match[1])) !== null) {
+    values.push(m[1]);
+  }
+  return values;
 }
 
 /**
@@ -219,6 +236,7 @@ export function parseSchemas(content: string): ParsedSchema[] {
         type: extractTypeParam(fieldBody),
         required: isRequired(fieldBody),
         doc: extractStringParam(fieldBody, "doc"),
+        enum: extractEnumParam(fieldBody),
       });
     }
 
@@ -265,8 +283,15 @@ export function generateStub(schemas: ParsedSchema[]): string {
         const shortDoc = f.doc
           ? cleanDoc(f.doc).replace(/^[\w]+ - /, "")
           : "";
+        const enumPart = f.enum.length > 0
+          ? `Allowed: ${f.enum.map(v => `"${v}"`).join(", ")}`
+          : "";
+        const sep = shortDoc && enumPart
+          ? (shortDoc.endsWith(".") ? " " : ". ")
+          : "";
+        const docText = shortDoc + sep + enumPart;
         docLines.push(
-          `        ${f.name}${typePart}${reqPart}: ${shortDoc}`,
+          `        ${f.name}${typePart}${reqPart}: ${docText}`,
         );
       }
     }

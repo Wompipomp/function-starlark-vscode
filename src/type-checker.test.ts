@@ -3,9 +3,13 @@ import { checkDocument, DiagnosticDescriptor, SchemaMetadata } from "./type-chec
 
 function makeMetadata(
   name: string,
-  fields: Array<{ name: string; type: string; required: boolean }>,
+  fields: Array<{ name: string; type: string; required: boolean; doc?: string; enum?: string[] }>,
 ): SchemaMetadata {
-  return { name, fields };
+  return {
+    name,
+    doc: "",
+    fields: fields.map(f => ({ ...f, doc: f.doc ?? "", enum: f.enum ?? [] })),
+  };
 }
 
 const accountSchema = makeMetadata("Account", [
