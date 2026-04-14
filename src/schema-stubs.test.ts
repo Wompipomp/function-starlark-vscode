@@ -95,6 +95,34 @@ MySchema = schema(
     expect(schemas).toHaveLength(1);
     expect(schemas[0].name).toBe("MySchema");
   });
+
+  it("parses user field literally named `name` (not confused with schema-level name= param)", () => {
+    const content = `Person = schema(
+    "Person",
+    name=field(type="string", required=True),
+    age=field(type="int"),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].fields.map((f) => f.name)).toEqual(["name", "age"]);
+    expect(schemas[0].fields[0].required).toBe(true);
+    expect(schemas[0].fields[0].type).toBe("string");
+  });
+
+  it("parses user field literally named `doc` (not confused with schema-level doc= param)", () => {
+    const content = `Article = schema(
+    "Article",
+    doc="An article",
+    title=field(type="string"),
+    doc=field(type="string", required=True),
+)`;
+    const schemas = parseSchemas(content);
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].doc).toBe("An article");
+    expect(schemas[0].fields.map((f) => f.name)).toEqual(["title", "doc"]);
+    const docField = schemas[0].fields.find((f) => f.name === "doc");
+    expect(docField?.required).toBe(true);
+  });
 });
 
 describe("generateStub", () => {

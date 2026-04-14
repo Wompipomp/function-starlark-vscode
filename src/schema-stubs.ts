@@ -233,8 +233,6 @@ export function parseSchemas(content: string): ParsedSchema[] {
 
     while ((fieldMatch = fieldRe.exec(body)) !== null) {
       const fieldName = fieldMatch[1];
-      // Skip schema-level params that aren't fields
-      if (fieldName === "doc" || fieldName === "name") continue;
 
       const fieldAbsOffset = openParen + 1 + fieldMatch.index;
       const fieldLine = content.substring(0, fieldAbsOffset).split("\n").length - 1;
