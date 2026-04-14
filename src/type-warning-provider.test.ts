@@ -16,17 +16,10 @@ vi.mock("./middleware", () => ({
   })),
 }));
 
-// Mock fs for existsSync
-vi.mock("fs", () => ({
-  existsSync: vi.fn(() => false),
-}));
-
 import { checkDocument } from "./type-checker";
 import { getDocumentImports } from "./middleware";
-import * as fs from "fs";
 const mockedCheckDocument = vi.mocked(checkDocument);
 const mockedGetDocumentImports = vi.mocked(getDocumentImports);
-const mockedExistsSync = vi.mocked(fs.existsSync);
 
 function createMockSchemaIndex(): SchemaIndex {
   return {
@@ -34,6 +27,7 @@ function createMockSchemaIndex(): SchemaIndex {
     getSymbolsForFile: vi.fn(() => new Set()),
     getAllSymbols: vi.fn(() => new Set()),
     getFileForSymbol: vi.fn(() => undefined),
+    getAbsolutePathForSymbol: vi.fn(() => undefined),
     buildFromCache: vi.fn(),
     rebuild: vi.fn(),
   } as unknown as SchemaIndex;
@@ -78,7 +72,7 @@ describe("TypeWarningProvider", () => {
   describe("debounce behavior", () => {
     it("creates DiagnosticCollection named 'functionStarlarkTypeWarnings'", () => {
       const index = createMockSchemaIndex();
-      const _provider = new TypeWarningProvider(index, "/mock/cache");
+      const _provider = new TypeWarningProvider(index);
       expect(vscode.languages.createDiagnosticCollection).toHaveBeenCalledWith(
         "functionStarlarkTypeWarnings",
       );
@@ -86,7 +80,7 @@ describe("TypeWarningProvider", () => {
 
     it("updateDiagnostics is called immediately (no debounce for direct calls)", () => {
       const index = createMockSchemaIndex();
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", "x = 1\n");
 
       mockedGetDocumentImports.mockReturnValue({
@@ -100,7 +94,7 @@ describe("TypeWarningProvider", () => {
 
     it("converts DiagnosticDescriptors to vscode.Diagnostic with Warning severity", () => {
       const index = createMockSchemaIndex();
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(name="x")\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -133,7 +127,7 @@ describe("TypeWarningProvider", () => {
 
     it("sets diag.code to the descriptor kind value", () => {
       const index = createMockSchemaIndex();
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(name="x")\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -170,7 +164,7 @@ describe("TypeWarningProvider", () => {
 
     it("filters out BUILTIN_NAMES from importedSymbols passed to checkDocument", () => {
       const index = createMockSchemaIndex();
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", "Account()\n");
 
       // getDocumentImports returns allowed set WITH builtins (as it always does)
@@ -191,7 +185,7 @@ describe("TypeWarningProvider", () => {
 
     it("dispose clears and disposes the DiagnosticCollection", () => {
       const index = createMockSchemaIndex();
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
 
       provider.dispose();
 
@@ -212,10 +206,9 @@ describe("TypeWarningProvider", () => {
           { name: "location", type: "string", required: true, doc: "", enum: [], line: 4 },
         ],
       });
-      vi.mocked(index.getFileForSymbol).mockReturnValue("schemas-test/v1/account.star");
-      mockedExistsSync.mockReturnValue(true);
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue("/mock/cache/schemas-test/v1/account.star");
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(name=42)\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -255,10 +248,9 @@ describe("TypeWarningProvider", () => {
           { name: "location", type: "string", required: true, doc: "", enum: [], line: 4 },
         ],
       });
-      vi.mocked(index.getFileForSymbol).mockReturnValue("schemas-test/v1/account.star");
-      mockedExistsSync.mockReturnValue(true);
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue("/mock/cache/schemas-test/v1/account.star");
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(name="x")\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -297,10 +289,9 @@ describe("TypeWarningProvider", () => {
           { name: "tier", type: "string", required: true, doc: "", enum: ["free", "pro"], line: 3 },
         ],
       });
-      vi.mocked(index.getFileForSymbol).mockReturnValue("schemas-test/v1/account.star");
-      mockedExistsSync.mockReturnValue(true);
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue("/mock/cache/schemas-test/v1/account.star");
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(tier="invalid")\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -339,10 +330,9 @@ describe("TypeWarningProvider", () => {
           { name: "name", type: "string", required: true, doc: "", enum: [], line: 7 },
         ],
       });
-      vi.mocked(index.getFileForSymbol).mockReturnValue("schemas-test/v1/account.star");
-      mockedExistsSync.mockReturnValue(true);
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue("/mock/cache/schemas-test/v1/account.star");
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(bogus="x")\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -377,7 +367,7 @@ describe("TypeWarningProvider", () => {
       vi.mocked(index.getSchemaMetadata).mockReturnValue(undefined);
       vi.mocked(index.getFileForSymbol).mockReturnValue(undefined);
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const localText = [
         'MySchema = schema("MySchema",',
         '  doc="A local schema",',
@@ -413,7 +403,7 @@ describe("TypeWarningProvider", () => {
       expect(ri.message).toBe("'title' defined here");
     });
 
-    it("no relatedInformation when getFileForSymbol returns undefined (no cache file)", () => {
+    it("no relatedInformation when getAbsolutePathForSymbol returns undefined (no cache file)", () => {
       const index = createMockSchemaIndex();
       vi.mocked(index.getSchemaMetadata).mockReturnValue({
         name: "Account",
@@ -423,10 +413,10 @@ describe("TypeWarningProvider", () => {
           { name: "name", type: "string", required: true, doc: "", enum: [], line: 2 },
         ],
       });
-      // No file available in cache
-      vi.mocked(index.getFileForSymbol).mockReturnValue(undefined);
+      // No file available in cache (either unknown symbol or missing on disk)
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue(undefined);
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
+      const provider = new TypeWarningProvider(index);
       const doc = createMockDocument("test://file.star", 'Account(name=42)\n');
 
       mockedGetDocumentImports.mockReturnValue({
@@ -451,7 +441,7 @@ describe("TypeWarningProvider", () => {
       expect(diagnostics[0].relatedInformation).toBeUndefined();
     });
 
-    it("no relatedInformation when cache file does not exist on disk", () => {
+    it("no relatedInformation when field name is not found in schema metadata (stale cache)", () => {
       const index = createMockSchemaIndex();
       vi.mocked(index.getSchemaMetadata).mockReturnValue({
         name: "Account",
@@ -461,12 +451,10 @@ describe("TypeWarningProvider", () => {
           { name: "name", type: "string", required: true, doc: "", enum: [], line: 2 },
         ],
       });
-      vi.mocked(index.getFileForSymbol).mockReturnValue("schemas-test/v1/account.star");
-      // File does NOT exist on disk
-      mockedExistsSync.mockReturnValue(false);
+      vi.mocked(index.getAbsolutePathForSymbol).mockReturnValue("/mock/cache/schemas-test/v1/account.star");
 
-      const provider = new TypeWarningProvider(index, "/mock/cache");
-      const doc = createMockDocument("test://file.star", 'Account(name=42)\n');
+      const provider = new TypeWarningProvider(index);
+      const doc = createMockDocument("test://file.star", 'Account(gone=42)\n');
 
       mockedGetDocumentImports.mockReturnValue({
         allowed: new Set<string>(["Account"]),
@@ -477,17 +465,49 @@ describe("TypeWarningProvider", () => {
           line: 0,
           startChar: 8,
           endChar: 14,
-          message: 'Field "name" expects string, got int',
+          message: 'Field "gone" expects string, got int',
           kind: "type-mismatch" as const,
           schemaName: "Account",
-          fieldName: "name",
+          fieldName: "gone", // not present in schema.fields above
         },
       ]);
 
       provider.updateDiagnostics(doc);
 
       const [, diagnostics] = mockDiagCollection.set.mock.calls[0];
+      // Better no relatedInformation than a misleading one pointing at the wrong line
       expect(diagnostics[0].relatedInformation).toBeUndefined();
+    });
+
+    it("caches URI resolution per update — multiple diagnostics on same schema hit cache once", () => {
+      const index = createMockSchemaIndex();
+      vi.mocked(index.getSchemaMetadata).mockReturnValue({
+        name: "Account",
+        doc: "An account",
+        nameLine: 0,
+        fields: [
+          { name: "name", type: "string", required: true, doc: "", enum: [], line: 2 },
+          { name: "email", type: "string", required: true, doc: "", enum: [], line: 3 },
+        ],
+      });
+      const pathMock = vi.mocked(index.getAbsolutePathForSymbol);
+      pathMock.mockReturnValue("/mock/cache/schemas-test/v1/account.star");
+
+      const provider = new TypeWarningProvider(index);
+      const doc = createMockDocument("test://file.star", 'Account(name=1, email=2)\n');
+
+      mockedGetDocumentImports.mockReturnValue({
+        allowed: new Set<string>(["Account"]),
+        namespaces: new Map<string, Set<string>>(),
+      });
+      mockedCheckDocument.mockReturnValue([
+        { line: 0, startChar: 13, endChar: 14, message: "…", kind: "type-mismatch" as const, schemaName: "Account", fieldName: "name" },
+        { line: 0, startChar: 22, endChar: 23, message: "…", kind: "type-mismatch" as const, schemaName: "Account", fieldName: "email" },
+      ]);
+
+      provider.updateDiagnostics(doc);
+
+      expect(pathMock).toHaveBeenCalledTimes(1);
     });
   });
 });

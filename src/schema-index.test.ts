@@ -415,4 +415,63 @@ describe("SchemaIndex", () => {
       expect(index.getSchemaMetadata("Service")).toBeDefined();
     });
   });
+
+  describe("getAbsolutePathForSymbol", () => {
+    it("returns absolute path joining cacheDir and the symbol's relative file", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Service = schema("Service", port=field(type="int"))',
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+
+      expect(index.getAbsolutePathForSymbol("Service")).toBe(
+        "/tmp/schemas/schemas-k8s/v1.31/core/v1.star",
+      );
+    });
+
+    it("returns undefined for unknown symbols", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Service = schema("Service", port=field(type="int"))',
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+
+      expect(index.getAbsolutePathForSymbol("DoesNotExist")).toBeUndefined();
+    });
+
+    it("returns undefined when cache has never been built", () => {
+      const index = new SchemaIndex();
+      expect(index.getAbsolutePathForSymbol("Anything")).toBeUndefined();
+    });
+
+    it("returns undefined if the resolved file no longer exists on disk", () => {
+      const cacheDir = "/tmp/schemas";
+      setupMockFS(
+        {
+          "schemas-k8s/v1.31/core/v1.star":
+            'Service = schema("Service", port=field(type="int"))',
+        },
+        cacheDir,
+      );
+
+      const index = new SchemaIndex();
+      index.buildFromCache(cacheDir);
+
+      // Simulate cache file disappearing after index build
+      mockedExistsSync.mockReturnValue(false);
+      expect(index.getAbsolutePathForSymbol("Service")).toBeUndefined();
+    });
+  });
 });
