@@ -6,8 +6,6 @@
  * clobbering with the existing missing-import DiagnosticCollection.
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { checkDocument } from "./type-checker";
 import { getDocumentImports } from "./middleware";
@@ -27,11 +25,9 @@ const DIAGNOSTIC_SOURCE = "functionStarlark";
 export class TypeWarningProvider implements vscode.Disposable {
   private readonly diagnosticCollection: vscode.DiagnosticCollection;
   private readonly schemaIndex: SchemaIndex;
-  private readonly cacheDir: string;
 
-  constructor(schemaIndex: SchemaIndex, cacheDir: string) {
+  constructor(schemaIndex: SchemaIndex) {
     this.schemaIndex = schemaIndex;
-    this.cacheDir = cacheDir;
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection(
       "functionStarlarkTypeWarnings",
     );
@@ -71,6 +67,10 @@ export class TypeWarningProvider implements vscode.Disposable {
       (symbolName) => localSchemaMap.get(symbolName) ?? this.schemaIndex.getSchemaMetadata(symbolName),
     );
 
+    // Per-update cache of schemaName → target URI so we only resolve a cache file
+    // once, even when many diagnostics reference the same schema.
+    const uriCache = new Map<string, vscode.Uri | null>();
+
     const diagnostics = descriptors.map((d) => {
       const range = new vscode.Range(
         new vscode.Position(d.line, d.startChar),
@@ -85,7 +85,7 @@ export class TypeWarningProvider implements vscode.Disposable {
       diag.code = d.kind;
 
       // Attach relatedInformation linking to schema/field definition
-      const ri = this.buildRelatedInformation(d, localSchemaMap, document);
+      const ri = this.buildRelatedInformation(d, localSchemaMap, document, uriCache);
       if (ri) {
         diag.relatedInformation = [ri];
       }
@@ -104,24 +104,24 @@ export class TypeWarningProvider implements vscode.Disposable {
     d: { schemaName: string; fieldName?: string; kind: string },
     localSchemaMap: Map<string, ParsedSchema>,
     document: vscode.TextDocument,
+    uriCache: Map<string, vscode.Uri | null>,
   ): vscode.DiagnosticRelatedInformation | undefined {
     // Look up schema metadata — local first, then cached
     const schema = localSchemaMap.get(d.schemaName) ?? this.schemaIndex.getSchemaMetadata(d.schemaName);
     if (!schema) return undefined;
 
-    const isLocal = localSchemaMap.has(d.schemaName);
-
-    // Resolve target URI
-    let targetUri: vscode.Uri | undefined;
-    if (isLocal) {
-      targetUri = document.uri as vscode.Uri;
-    } else {
-      const relativePath = this.schemaIndex.getFileForSymbol(d.schemaName);
-      if (!relativePath) return undefined;
-      const absPath = path.join(this.cacheDir, relativePath);
-      if (!fs.existsSync(absPath)) return undefined;
-      targetUri = vscode.Uri.file(absPath);
+    // Resolve target URI (per-update cached)
+    let targetUri = uriCache.get(d.schemaName);
+    if (targetUri === undefined) {
+      if (localSchemaMap.has(d.schemaName)) {
+        targetUri = document.uri;
+      } else {
+        const absPath = this.schemaIndex.getAbsolutePathForSymbol(d.schemaName);
+        targetUri = absPath ? vscode.Uri.file(absPath) : null;
+      }
+      uriCache.set(d.schemaName, targetUri);
     }
+    if (!targetUri) return undefined;
 
     // Determine target line and label
     let targetLine: number;
@@ -131,7 +131,8 @@ export class TypeWarningProvider implements vscode.Disposable {
       label = `'${d.schemaName}' defined here`;
     } else {
       const field = schema.fields.find(f => f.name === d.fieldName);
-      targetLine = field ? field.line : schema.nameLine;
+      if (!field) return undefined;
+      targetLine = field.line;
       label = `'${d.fieldName}' defined here`;
     }
 

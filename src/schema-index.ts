@@ -162,6 +162,7 @@ export class SchemaIndex {
   private index = new Map<string, Set<string>>();
   private reverseIndex = new Map<string, string>();
   private metadataIndex = new Map<string, ParsedSchema>();
+  private cacheDir: string | undefined;
 
   /**
    * Scan a cache directory recursively and index all .star files.
@@ -173,6 +174,7 @@ export class SchemaIndex {
     this.index.clear();
     this.reverseIndex.clear();
     this.metadataIndex.clear();
+    this.cacheDir = cacheDir;
     this.walkDir(cacheDir, cacheDir);
   }
 
@@ -202,6 +204,20 @@ export class SchemaIndex {
    */
   getFileForSymbol(symbol: string): string | undefined {
     return this.reverseIndex.get(symbol);
+  }
+
+  /**
+   * Resolve a symbol to an absolute path on disk.
+   *
+   * Returns undefined if the symbol is unknown, the cache has never been built,
+   * or the resolved file no longer exists on disk.
+   */
+  getAbsolutePathForSymbol(symbol: string): string | undefined {
+    if (!this.cacheDir) return undefined;
+    const rel = this.reverseIndex.get(symbol);
+    if (!rel) return undefined;
+    const abs = path.join(this.cacheDir, rel);
+    return fs.existsSync(abs) ? abs : undefined;
   }
 
   /**
