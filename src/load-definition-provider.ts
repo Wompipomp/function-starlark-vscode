@@ -17,17 +17,15 @@
  *   - Does NOT navigate from the path-string argument (the first load() arg)
  *     to the .star file itself. Intentional — follow-up if users request it.
  *   - Does NOT handle namespace member access (e.g. `storage.Account` where
- *     `storage="*"` was imported). Direct imports and usage identifiers cover
- *     the reported user need; namespace member resolution is a separate task.
- *   - Does NOT handle star imports (`"*"`) for navigation beyond returning
- *     the file itself. findLoadArgumentAtPosition still reports kind=symbol
- *     value="*" so callers can handle it if they wish.
+ *     `storage="*"` was imported). Direct imports, star imports, and usage
+ *     identifiers of either cover the reported user need; namespace member
+ *     resolution is a separate task.
  */
 
 import * as fs from "fs";
 import * as vscode from "vscode";
 
-import { parseLoadStatements } from "./load-parser";
+import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import type { SchemaIndex } from "./schema-index";
 
 /**
@@ -283,8 +281,8 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
     if (hit) {
       if (hit.kind === "symbol") {
         if (hit.value === "*") {
-          // v1 does not resolve "*" — navigation target is ambiguous.
-          return undefined;
+          // Star import: jump to the top of the loaded file.
+          return this.resolveFile(hit.ociRef, hit.tarEntryPath);
         }
         return this.resolveInLoad(hit.ociRef, hit.tarEntryPath, hit.value);
       }
@@ -292,9 +290,10 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
       return undefined;
     }
 
-    // 2. Otherwise, try the identifier under the cursor — but only if it was
-    //    imported by a load() in THIS file. Using the file's own load() for
-    //    resolution keeps multi-version caches correctly scoped.
+    // 2. Otherwise, try the identifier under the cursor — but only if a
+    //    load() in THIS file brings the symbol into scope. This keeps
+    //    multi-version caches correctly scoped and avoids leaky cross-file
+    //    resolution via the global symbol index.
     const wordRange = document.getWordRangeAtPosition(position);
     if (!wordRange) return undefined;
     const word = text.substring(
@@ -304,11 +303,37 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
     if (!word) return undefined;
 
     for (const stmt of parseLoadStatements(text)) {
+      // Directly named in load() — cheapest check.
       if (stmt.symbols.includes(word)) {
         return this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
       }
+      // Star import: check whether the imported file actually exports `word`
+      // before resolving, to avoid false positives.
+      if (stmt.symbols.includes("*")) {
+        const relPath = `${ociRefToCacheKey(stmt.ociRef)}/${stmt.tarEntryPath}`;
+        if (this.schemaIndex.getSymbolsForFile(relPath).has(word)) {
+          return this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+        }
+      }
     }
     return undefined;
+  }
+
+  /** Navigate to the top of the .star file identified by this load(). */
+  private resolveFile(
+    ociRef: string,
+    tarEntryPath: string,
+  ): vscode.Location | undefined {
+    const absPath = this.schemaIndex.getAbsolutePathForLoad(
+      ociRef,
+      tarEntryPath,
+    );
+    if (!absPath) return undefined;
+    const pos = new vscode.Position(0, 0);
+    return new vscode.Location(
+      vscode.Uri.file(absPath),
+      new vscode.Range(pos, pos),
+    );
   }
 
   /**
