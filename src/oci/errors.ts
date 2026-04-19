@@ -45,13 +45,18 @@ export class OciDownloadError extends Error {
     httpStatus?: number;
     cause?: unknown;
   }) {
-    super(args.message, args.cause !== undefined ? { cause: args.cause } : undefined);
+    super(args.message);
     this.name = "OciDownloadError";
     this.kind = args.kind;
     this.httpStatus = args.httpStatus;
     this.registryHost = args.registryHost;
     this.repository = args.repository;
     this.tag = args.tag;
+    // Assign cause after super() so this compiles under ES2020 targets that
+    // don't know about the ES2022 `ErrorOptions` overload.
+    if (args.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = args.cause;
+    }
   }
 
   /** Full reference for diagnostic messages: `host/repo:tag`. */

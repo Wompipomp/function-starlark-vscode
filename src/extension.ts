@@ -16,12 +16,14 @@ import type { DocumentSymbol } from "vscode-languageserver-types";
 import { BuildifierFormatProvider } from "./buildifier";
 import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
 import { OciDownloader } from "./oci/downloader";
+import { OciDownloadError } from "./oci/errors";
 import { SchemaIndex, loadBuiltinModuleDocs } from "./schema-index";
 import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, clearAllDocumentImports } from "./middleware";
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { TypeWarningProvider } from "./type-warning-provider";
 import { MissingFieldQuickFixProvider } from "./missing-field-fix";
 import { LoadDefinitionProvider } from "./load-definition-provider";
+import { SchemaDownloadDiagnostics } from "./schema-download-diagnostics";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 import { isLspNoiseDiagnostic } from "./lsp-diagnostic-filter";
 
@@ -36,6 +38,11 @@ let downloader: OciDownloader | undefined;
 let diagnosticProvider: MissingImportDiagnosticProvider | undefined;
 let typeWarningProvider: TypeWarningProvider | undefined;
 let missingFieldFixProvider: MissingFieldQuickFixProvider | undefined;
+let downloadDiagnostics: SchemaDownloadDiagnostics | undefined;
+const notifiedDownloadFailures: Set<string> = new Set();
+let retrySchemaDownloadFor:
+  | ((doc: vscode.TextDocument) => void)
+  | undefined;
 let typeCheckTimer: ReturnType<typeof setTimeout> | undefined;
 let schemaDisposables: vscode.Disposable[] = [];
 let configDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -43,6 +50,45 @@ let schemaGeneration = 0;
 
 export function getSchemaGeneration(): number {
   return schemaGeneration;
+}
+
+/**
+ * Show an error toast for a failed OCI download at most once per ociRef per
+ * session. The diagnostic on the load() line is the persistent reminder;
+ * the toast is the first-time heads-up so users know something is wrong
+ * without having to open the Problems panel or the output channel.
+ */
+function notifyDownloadFailureOnce(err: OciDownloadError): void {
+  if (notifiedDownloadFailures.has(err.reference)) return;
+  notifiedDownloadFailures.add(err.reference);
+
+  const summary =
+    err.kind === "auth"
+      ? `Authentication failed for ${err.registryHost} — schemas from ${err.reference} could not be downloaded.`
+      : err.kind === "notFound"
+        ? `Schema artifact not found: ${err.reference}.`
+        : err.kind === "network"
+          ? `Network error downloading ${err.reference}.`
+          : `Schema download failed for ${err.reference}.`;
+
+  void vscode.window
+    .showErrorMessage(summary, "Show Output", "Retry")
+    .then((choice) => {
+      if (choice === "Show Output") {
+        outputChannel?.show();
+      } else if (choice === "Retry") {
+        notifiedDownloadFailures.delete(err.reference);
+        const trigger = retrySchemaDownloadFor;
+        if (!trigger) return;
+        for (const doc of vscode.workspace.textDocuments) {
+          if (doc.languageId !== "starlark") continue;
+          // Only re-trigger docs whose text references the failed artifact.
+          const nameOnly = err.repository.split("/").pop() ?? err.repository;
+          if (!doc.getText().includes(`${nameOnly}:${err.tag}`)) continue;
+          trigger(doc);
+        }
+      }
+    });
 }
 
 export function getSchemaCachePath(context: vscode.ExtensionContext): string {
@@ -396,6 +442,10 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
           outputChannel?.info(`Discarding download for ${load.ociRef} (config changed)`);
           return;
         }
+        // Download succeeded — drop any download-failure diagnostic for this
+        // ociRef across all open docs, and allow a future failure to notify.
+        downloadDiagnostics?.clearFor(load.ociRef);
+        notifiedDownloadFailures.delete(load.ociRef);
         const dir = getSchemaCachePath(context);
         currentSchemaIndex.rebuild(dir);
         generateStubFile(dir);
@@ -409,7 +459,17 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
         if (statusBarItem) {
           statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
         }
-      }).catch(() => {
+      }).catch((err: unknown) => {
+        if (schemaGeneration !== currentGeneration) return;
+        if (err instanceof OciDownloadError) {
+          downloadDiagnostics?.reportFailure(document, load.ociRef, err);
+          notifyDownloadFailureOnce(err);
+        } else {
+          outputChannel?.error(
+            `Unexpected download failure for ${load.ociRef}`,
+            err instanceof Error ? err : new Error(String(err)),
+          );
+        }
         if (statusBarItem) {
           statusBarItem.text = client?.isRunning() ? "$(check) Starlark" : "$(x) Starlark";
         }
@@ -425,8 +485,17 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   const saveHandler = vscode.workspace.onDidSaveTextDocument(handleDocumentForSchemas);
   const closeHandler = vscode.workspace.onDidCloseTextDocument((doc) => {
     clearDocumentImports(doc.uri.toString());
+    downloadDiagnostics?.forgetDocument(doc.uri);
   });
   schemaDisposables.push(openHandler, saveHandler, closeHandler);
+
+  // Download-failure diagnostics: red squiggle on load() lines when an
+  // artifact can't be pulled (auth, 404, network). Cleared on next success.
+  const downloadDiagCollection = vscode.languages.createDiagnosticCollection(
+    "functionStarlark.downloads",
+  );
+  downloadDiagnostics = new SchemaDownloadDiagnostics(downloadDiagCollection);
+  schemaDisposables.push(downloadDiagCollection, downloadDiagnostics);
 
   const diagCollection = vscode.languages.createDiagnosticCollection("functionStarlark");
   diagnosticProvider = new MissingImportDiagnosticProvider(currentSchemaIndex, diagCollection);
@@ -461,12 +530,14 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
   schemaDisposables.push(definitionReg);
 
   // Debounced onDidChangeTextDocument handler for real-time type checking
+  // and for reflowing download-failure diagnostics as the user edits load()s.
   const typeCheckChangeHandler = vscode.workspace.onDidChangeTextDocument((e) => {
     if (e.document.languageId !== "starlark") return;
     if (typeCheckTimer) clearTimeout(typeCheckTimer);
     typeCheckTimer = setTimeout(() => {
       typeCheckTimer = undefined;
       typeWarningProvider?.updateDiagnostics(e.document);
+      downloadDiagnostics?.refreshDocument(e.document);
     }, 500);
   });
   schemaDisposables.push(typeCheckChangeHandler);
@@ -477,6 +548,11 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
     typeWarningProvider?.updateDiagnostics(doc);
   });
   schemaDisposables.push(typeCheckOpenHandler);
+
+  // Expose the per-document handler so the Retry toast action can re-run it.
+  retrySchemaDownloadFor = (doc) => {
+    void handleDocumentForSchemas(doc);
+  };
 
   // Scan all currently open starlark documents
   vscode.workspace.textDocuments
@@ -495,6 +571,9 @@ function teardownSchemaSubsystem(): void {
   diagnosticProvider = undefined;
   typeWarningProvider = undefined; // disposal handled by schemaDisposables loop
   missingFieldFixProvider = undefined;
+  downloadDiagnostics = undefined;
+  notifiedDownloadFailures.clear();
+  retrySchemaDownloadFor = undefined;
   schemaIndex = undefined;
   downloader = undefined;
   for (const d of schemaDisposables) {
