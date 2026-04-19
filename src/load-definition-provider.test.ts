@@ -489,6 +489,85 @@ describe("LoadDefinitionProvider", () => {
     expect(usageHit.range.start.line).toBe(2);
   });
 
+  it("resolves a usage when the target is a top-level assignment (not def/schema)", () => {
+    // Mirrors stdlib patterns like:
+    //   kcl_generate_name = kcl.make_invocation("generate_name")
+    // which is neither `def` nor `schema(` — the pre-widening provider would
+    // miss it because SchemaIndex.extractTopLevelDefs only catches those two.
+    const platformDir = path.join(cacheDir, "starlark-stdlib", "v1.6.3");
+    fs.mkdirSync(platformDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(platformDir, "platform.star"),
+      [
+        "# platform helpers",
+        "",
+        "_kcl = struct(make_invocation=lambda n: n)",
+        "",
+        'kcl_generate_name = _kcl.make_invocation("generate_name")',
+        'kcl_normalize_k8s_resource_name = _kcl.make_invocation("normalize")',
+      ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(platformDir, "iam.star"),
+      "# iam helpers\n\ndef iam_role(name):\n    return name\n",
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("oci://registry.example.com/starlark-stdlib:v1.6.3/platform.star", "*")\n' +
+      'load("oci://registry.example.com/starlark-stdlib:v1.6.3/iam.star", "*")\n' +
+      "resolver_key = kcl_generate_name(_PREFIX)\n" +
+      'env_key = kcl_normalize_k8s_resource_name("%s-env" % xr_name)\n';
+    const doc = createMockDocument(text);
+
+    const callOffset = text.indexOf("kcl_generate_name(") + 2;
+    const callHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(callOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(callHit).toBeDefined();
+    expect(callHit.uri.fsPath).toBe(path.join(platformDir, "platform.star"));
+    expect(callHit.range.start.line).toBe(4);
+
+    const normOffset = text.indexOf("kcl_normalize_k8s_resource_name(") + 2;
+    const normHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(normOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(normHit).toBeDefined();
+    expect(normHit.uri.fsPath).toBe(path.join(platformDir, "platform.star"));
+    expect(normHit.range.start.line).toBe(5);
+  });
+
+  it("does not misattribute same-prefix identifiers when resolving top-level bindings", () => {
+    // Guard against a naive regex like /^foo\s*=/ accidentally matching
+    // `foo_bar = ...` when searching for `foo`.
+    const dir = path.join(cacheDir, "prefix-test", "v1");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "mod.star"),
+      ["foo_bar = 1", "foo = 2", ""].join("\n"),
+      "utf-8",
+    );
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("prefix-test:v1/mod.star", "*")\nuse = foo\n';
+    const doc = createMockDocument(text);
+    const offset = text.indexOf("= foo\n") + 2;
+    const hit = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(hit.range.start.line).toBe(1); // `foo = 2` on line 1, not `foo_bar = 1` on line 0
+  });
+
   it("returns undefined when cache file has been deleted after indexing", () => {
     const idx = buildIndex();
     const provider = new LoadDefinitionProvider(idx);
