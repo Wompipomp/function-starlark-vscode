@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.7.0...vscode-function-starlark-v0.8.0) (2026-04-19)
+
+
+### Features
+
+* **quick-4:** implement LoadDefinitionProvider for go-to-definition ([473ec2b](https://github.com/Wompipomp/function-starlark-vscode/commit/473ec2b3fa9186b5fc1ef1684c9c1af4b5e34fb5))
+* **quick-4:** register LoadDefinitionProvider in extension activation ([ed7ba30](https://github.com/Wompipomp/function-starlark-vscode/commit/ed7ba3028ae2bb5d858913aa39fb9473cdabcec7))
+
 ## [0.7.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.6.0...vscode-function-starlark-v0.7.0) (2026-04-14)
 
 
