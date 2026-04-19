@@ -356,6 +356,102 @@ describe("LoadDefinitionProvider", () => {
     expect(result).toBeUndefined();
   });
 
+  it("resolves star import (\"*\") on the load-argument to the target file at line 0", () => {
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("schemas-k8s:v1.31/apps/v1.star", "*")\n';
+    const doc = createMockDocument(text);
+    const offset = text.indexOf('"*"') + 1;
+    const result = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(result).toBeDefined();
+    expect(result.uri.fsPath).toBe(
+      path.join(cacheDir, "schemas-k8s", "v1.31", "apps", "v1.star"),
+    );
+    expect(result.range.start.line).toBe(0);
+  });
+
+  it("resolves a usage identifier brought into scope by a star import", () => {
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("schemas-k8s:v1.31/apps/v1.star", "*")\nDeployment(spec="x")\n';
+    const doc = createMockDocument(text);
+    const offset = text.indexOf("Deployment(") + 2;
+    const result = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(result).toBeDefined();
+    expect(result.uri.fsPath).toBe(
+      path.join(cacheDir, "schemas-k8s", "v1.31", "apps", "v1.star"),
+    );
+    // Deployment is at line 5 in the fixture in beforeEach.
+    expect(result.range.start.line).toBe(5);
+  });
+
+  it("star import does not resolve symbols the target file does not export", () => {
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("schemas-k8s:v1.31/apps/v1.star", "*")\nMystery(x=1)\n';
+    const doc = createMockDocument(text);
+    const offset = text.indexOf("Mystery(") + 2;
+    const result = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("resolves full-URI OCI references (ghcr.io/...) via ociRefToCacheKey", () => {
+    // Fixture: simulate what the downloader does for a full-URI load.
+    // The cache uses the LAST segment of the repository + tag, so this maps
+    // onto `starlark-stdlib/v2/naming.star` regardless of the registry host.
+    const stdlibDir = path.join(cacheDir, "starlark-stdlib", "v2");
+    fs.mkdirSync(stdlibDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stdlibDir, "naming.star"),
+      ["# stdlib naming helpers", "", "def camelcase(s):", "    return s"].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("oci://ghcr.io/wompipomp/starlark-stdlib:v2/naming.star", "*")\n' +
+      'x = camelcase("foo")\n';
+    const doc = createMockDocument(text);
+
+    // 1. Cursor on the star in load() — jumps to file at line 0.
+    const starOffset = text.indexOf('"*"') + 1;
+    const starHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(starOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(starHit.uri.fsPath).toBe(path.join(stdlibDir, "naming.star"));
+    expect(starHit.range.start.line).toBe(0);
+
+    // 2. Cursor on `camelcase` usage — resolves via star import per-file lookup.
+    const usageOffset = text.indexOf("camelcase(") + 2;
+    const usageHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(usageOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(usageHit.uri.fsPath).toBe(path.join(stdlibDir, "naming.star"));
+    expect(usageHit.range.start.line).toBe(2);
+  });
+
   it("returns undefined when cache file has been deleted after indexing", () => {
     const idx = buildIndex();
     const provider = new LoadDefinitionProvider(idx);
