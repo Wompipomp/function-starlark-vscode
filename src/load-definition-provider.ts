@@ -25,14 +25,21 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
 
-import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
+import { parseLoadStatements } from "./load-parser";
 import type { SchemaIndex } from "./schema-index";
 
 /**
  * Find the zero-based line number where a top-level symbol is defined in
- * .star file content. Matches the shape used by extractTopLevelDefs:
- *   - `def Symbol(...)` at column 0
- *   - `Symbol = schema(...)` at column 0
+ * .star file content. Matches three forms at column 0:
+ *   - `def Symbol(...)` — function definition
+ *   - `Symbol = schema(...)` — schema declaration
+ *   - `Symbol = <expr>` — any other top-level binding (e.g. function aliases
+ *     like `kcl_generate_name = kcl.make_invocation(...)`), excluding `==`
+ *     comparisons
+ *
+ * The third form is intentionally broader than SchemaIndex.extractTopLevelDefs
+ * (which only tracks def and schema for completion/diagnostic scoping) — go-to-
+ * definition wants to land on ANY top-level binding, not just exported schemas.
  *
  * Returns undefined if the symbol appears only indented (nested) or is absent.
  * When the symbol appears multiple times, returns the line of the first match.
@@ -45,7 +52,7 @@ export function findSymbolLineInStarFile(
   // Escape symbol for regex safety (symbol names are identifiers, but
   // defensive against future extension to '*' etc.).
   const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`^(?:def\\s+${esc}\\b|${esc}\\s*=\\s*schema\\s*\\()`);
+  const re = new RegExp(`^(?:def\\s+${esc}\\b|${esc}\\b\\s*=(?!=))`);
   for (let i = 0; i < lines.length; i++) {
     if (re.test(lines[i])) {
       return i;
@@ -284,7 +291,13 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
           // Star import: jump to the top of the loaded file.
           return this.resolveFile(hit.ociRef, hit.tarEntryPath);
         }
-        return this.resolveInLoad(hit.ociRef, hit.tarEntryPath, hit.value);
+        // Explicit symbol — fall back to opening the file at line 0 if the
+        // exact definition line can't be pinpointed (user still ends up in
+        // the right file, which is better than doing nothing).
+        return (
+          this.resolveInLoad(hit.ociRef, hit.tarEntryPath, hit.value) ??
+          this.resolveFile(hit.ociRef, hit.tarEntryPath)
+        );
       }
       // Namespace hits are out of scope for v1 (see file header).
       return undefined;
@@ -305,15 +318,18 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
     for (const stmt of parseLoadStatements(text)) {
       // Directly named in load() — cheapest check.
       if (stmt.symbols.includes(word)) {
-        return this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+        const loc = this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+        if (loc) return loc;
+        // Named explicitly but line not found — still land in the file.
+        return this.resolveFile(stmt.ociRef, stmt.tarEntryPath);
       }
-      // Star import: check whether the imported file actually exports `word`
-      // before resolving, to avoid false positives.
+      // Star import: probe the target file directly. resolveInLoad returns
+      // undefined when the symbol is not bound at top level in that file,
+      // which also acts as the "wrong star import" filter so a usage only
+      // resolves to the load() whose file actually exports it.
       if (stmt.symbols.includes("*")) {
-        const relPath = `${ociRefToCacheKey(stmt.ociRef)}/${stmt.tarEntryPath}`;
-        if (this.schemaIndex.getSymbolsForFile(relPath).has(word)) {
-          return this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
-        }
+        const loc = this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+        if (loc) return loc;
       }
     }
     return undefined;
@@ -337,10 +353,12 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
   }
 
   /**
-   * Resolve a symbol to a Location inside the .star file identified by the
-   * given OCI ref + tar-entry path, or undefined if the file is missing /
-   * unreadable. Scopes resolution per-load() so distinct cached versions of
-   * the same artifact do not collide.
+   * Resolve a symbol to a Location at its top-level binding line inside the
+   * .star file identified by the given OCI ref + tar-entry path.
+   *
+   * Returns undefined if the file is missing, unreadable, or does not contain
+   * a top-level binding of the symbol. Callers that want a "land in the file
+   * anyway" fallback should combine with resolveFile().
    */
   private resolveInLoad(
     ociRef: string,
@@ -359,8 +377,8 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
       return undefined;
     }
     const line = findSymbolLineInStarFile(content, symbol);
-    const targetLine = line ?? 0;
-    const pos = new vscode.Position(targetLine, 0);
+    if (line === undefined) return undefined;
+    const pos = new vscode.Position(line, 0);
     return new vscode.Location(
       vscode.Uri.file(absPath),
       new vscode.Range(pos, pos),
