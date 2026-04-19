@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.8.0...vscode-function-starlark-v0.8.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* **quick-4:** handle star imports in load() go-to-def ([1b84262](https://github.com/Wompipomp/function-starlark-vscode/commit/1b8426225534194aec00e3467b316111f8428175))
+* **quick-4:** resolve load() go-to-def per-version to avoid cache collisions ([78bc7ed](https://github.com/Wompipomp/function-starlark-vscode/commit/78bc7edcb6b8dff132ce16b4d0783dd17cfc116c))
+
 ## [0.8.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.7.0...vscode-function-starlark-v0.8.0) (2026-04-19)
 
 
