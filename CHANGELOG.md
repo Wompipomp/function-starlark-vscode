@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.9.0...vscode-function-starlark-v0.9.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* hover + go-to-def for user-namespace members (k8s.Deployment) ([89024cc](https://github.com/Wompipomp/function-starlark-vscode/commit/89024cc1baf9279daec6762313615a7d3d19f3fd))
+
 ## [0.9.0](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.8.0...vscode-function-starlark-v0.9.0) (2026-04-19)
 
 
