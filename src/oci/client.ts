@@ -7,6 +7,11 @@
  */
 
 import { type DockerCredentials, parseWwwAuthenticate } from "./auth";
+import {
+  OciDownloadError,
+  classifyHttpStatus,
+  wrapNetworkError,
+} from "./errors";
 
 /** A downloaded OCI layer with metadata. */
 export interface OciLayer {
@@ -35,6 +40,7 @@ interface OciManifest {
  *   const tarData = await client.pullArtifact("v1.31");
  */
 export class OciClient {
+  private readonly registryHost: string;
   private readonly baseUrl: string;
   private readonly repository: string;
   private readonly credentials?: DockerCredentials;
@@ -45,6 +51,7 @@ export class OciClient {
     repository: string,
     credentials?: DockerCredentials,
   ) {
+    this.registryHost = registryHost;
     this.baseUrl = `https://${registryHost}`;
     this.repository = repository;
     this.credentials = credentials;
@@ -55,21 +62,34 @@ export class OciClient {
    *
    * Returns each layer with its mediaType, data, and optional filename
    * (from the org.opencontainers.image.title annotation).
+   *
+   * Throws {@link OciDownloadError} on any failure — auth, 404, network,
+   * or other — so callers can classify and surface the cause to the user.
    */
   async pullArtifact(tag: string): Promise<OciLayer[]> {
-    const manifest = await this.getManifest(tag);
-    const layers: OciLayer[] = [];
+    try {
+      const manifest = await this.getManifest(tag);
+      const layers: OciLayer[] = [];
 
-    for (const layer of manifest.layers) {
-      const data = await this.getBlob(layer.digest);
-      layers.push({
-        mediaType: layer.mediaType,
-        data,
-        filename: layer.annotations?.["org.opencontainers.image.title"],
+      for (const layer of manifest.layers) {
+        const data = await this.getBlob(layer.digest, tag);
+        layers.push({
+          mediaType: layer.mediaType,
+          data,
+          filename: layer.annotations?.["org.opencontainers.image.title"],
+        });
+      }
+
+      return layers;
+    } catch (err) {
+      if (err instanceof OciDownloadError) throw err;
+      // fetch() rejected (DNS, TCP, TLS, ...) — wrap as network error.
+      throw wrapNetworkError(err, {
+        registryHost: this.registryHost,
+        repository: this.repository,
+        tag,
       });
     }
-
-    return layers;
   }
 
   /**
@@ -85,9 +105,14 @@ export class OciClient {
     const response = await this.authenticatedFetch(url, accept);
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch manifest from ${this.baseUrl}: ${response.status} ${response.statusText}`,
-      );
+      throw new OciDownloadError({
+        kind: classifyHttpStatus(response.status),
+        message: `manifest ${response.status} ${response.statusText}`,
+        registryHost: this.registryHost,
+        repository: this.repository,
+        tag,
+        httpStatus: response.status,
+      });
     }
 
     return (await response.json()) as OciManifest;
@@ -98,7 +123,7 @@ export class OciClient {
    *
    * Reuses the Bearer token obtained during manifest fetch.
    */
-  private async getBlob(digest: string): Promise<Uint8Array> {
+  private async getBlob(digest: string, tag: string): Promise<Uint8Array> {
     const url = `${this.baseUrl}/v2/${this.repository}/blobs/${digest}`;
 
     const headers: Record<string, string> = {};
@@ -109,9 +134,14 @@ export class OciClient {
     const response = await fetch(url, { headers });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch blob ${digest}: ${response.status} ${response.statusText}`,
-      );
+      throw new OciDownloadError({
+        kind: classifyHttpStatus(response.status),
+        message: `blob ${digest} ${response.status} ${response.statusText}`,
+        registryHost: this.registryHost,
+        repository: this.repository,
+        tag,
+        httpStatus: response.status,
+      });
     }
 
     return new Uint8Array(await response.arrayBuffer());

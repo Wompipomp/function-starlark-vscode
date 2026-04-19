@@ -360,4 +360,77 @@ describe("OciClient", () => {
       await expect(client.pullArtifact(tag)).rejects.toThrow(/blob.*404/i);
     });
   });
+
+  describe("OciDownloadError classification", () => {
+    const registry = "registry.example.com";
+    const repo = "starlark-stdlib";
+    const tag = "v1.6.3";
+
+    it("classifies 401 on manifest as kind=auth with registry context", async () => {
+      // First request returns 401 with no Www-Authenticate — authenticatedFetch
+      // then returns that same 401 response unchanged (no challenge to parse).
+      fetchMock.mockResolvedValueOnce(mockResponse(401, null));
+
+      const client = new OciClient(registry, repo);
+      try {
+        await client.pullArtifact(tag);
+        throw new Error("should have thrown");
+      } catch (err) {
+        const { OciDownloadError } = await import("./errors");
+        expect(err).toBeInstanceOf(OciDownloadError);
+        const oe = err as InstanceType<typeof OciDownloadError>;
+        expect(oe.kind).toBe("auth");
+        expect(oe.httpStatus).toBe(401);
+        expect(oe.registryHost).toBe(registry);
+        expect(oe.repository).toBe(repo);
+        expect(oe.tag).toBe(tag);
+        expect(oe.reference).toBe(`${registry}/${repo}:${tag}`);
+      }
+    });
+
+    it("classifies 403 as kind=auth", async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(403, null));
+      const client = new OciClient(registry, repo);
+      try {
+        await client.pullArtifact(tag);
+        throw new Error("should have thrown");
+      } catch (err) {
+        const { OciDownloadError } = await import("./errors");
+        const oe = err as InstanceType<typeof OciDownloadError>;
+        expect(oe).toBeInstanceOf(OciDownloadError);
+        expect(oe.kind).toBe("auth");
+        expect(oe.httpStatus).toBe(403);
+      }
+    });
+
+    it("classifies 404 on manifest as kind=notFound", async () => {
+      fetchMock.mockResolvedValueOnce(mockResponse(404, null));
+      const client = new OciClient(registry, repo);
+      try {
+        await client.pullArtifact(tag);
+        throw new Error("should have thrown");
+      } catch (err) {
+        const { OciDownloadError } = await import("./errors");
+        const oe = err as InstanceType<typeof OciDownloadError>;
+        expect(oe.kind).toBe("notFound");
+        expect(oe.httpStatus).toBe(404);
+      }
+    });
+
+    it("wraps fetch rejection as kind=network", async () => {
+      fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+      const client = new OciClient(registry, repo);
+      try {
+        await client.pullArtifact(tag);
+        throw new Error("should have thrown");
+      } catch (err) {
+        const { OciDownloadError } = await import("./errors");
+        const oe = err as InstanceType<typeof OciDownloadError>;
+        expect(oe).toBeInstanceOf(OciDownloadError);
+        expect(oe.kind).toBe("network");
+        expect(oe.registryHost).toBe(registry);
+        expect(oe.message).toContain("Network error");
+      }
+    });
+  });
 });
