@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.8.1...vscode-function-starlark-v0.8.2) (2026-04-19)
+
+
+### Bug Fixes
+
+* **quick-4:** resolve top-level assignments in load() go-to-def ([648a800](https://github.com/Wompipomp/function-starlark-vscode/commit/648a800398b602fdd6b107107b858d6a24890466))
+
 ## [0.8.1](https://github.com/Wompipomp/function-starlark-vscode/compare/vscode-function-starlark-v0.8.0...vscode-function-starlark-v0.8.1) (2026-04-19)
 
 
