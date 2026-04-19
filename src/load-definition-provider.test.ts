@@ -452,6 +452,43 @@ describe("LoadDefinitionProvider", () => {
     expect(usageHit.range.start.line).toBe(2);
   });
 
+  it("resolves ACR-hosted (atlshared.azurecr.io) full-URI load with star import", () => {
+    const stdlibDir = path.join(cacheDir, "starlark-stdlib", "v1.6.3");
+    fs.mkdirSync(stdlibDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stdlibDir, "iam.star"),
+      ["# iam helpers", "", "def iam_role(name):", "    return name"].join("\n"),
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("oci://atlshared.azurecr.io/starlark-stdlib:v1.6.3/iam.star", "*")\n' +
+      'r = iam_role("admin")\n';
+    const doc = createMockDocument(text);
+
+    // Star argument inside load() — jump to file at line 0.
+    const starOffset = text.indexOf('"*"') + 1;
+    const starHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(starOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(starHit.uri.fsPath).toBe(path.join(stdlibDir, "iam.star"));
+    expect(starHit.range.start.line).toBe(0);
+
+    // Usage identifier — resolves via star-import per-file lookup.
+    const usageOffset = text.indexOf("iam_role(") + 2;
+    const usageHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(usageOffset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(usageHit.uri.fsPath).toBe(path.join(stdlibDir, "iam.star"));
+    expect(usageHit.range.start.line).toBe(2);
+  });
+
   it("returns undefined when cache file has been deleted after indexing", () => {
     const idx = buildIndex();
     const provider = new LoadDefinitionProvider(idx);
