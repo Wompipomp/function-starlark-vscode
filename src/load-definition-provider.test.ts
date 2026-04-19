@@ -568,6 +568,78 @@ describe("LoadDefinitionProvider", () => {
     expect(hit.range.start.line).toBe(1); // `foo = 2` on line 1, not `foo_bar = 1` on line 0
   });
 
+  it("resolves namespace-member usage (k8s.Deployment when imported via k8s=\"*\")", () => {
+    const k8sDir = path.join(cacheDir, "schemas-k8s", "v1.35", "apps");
+    fs.mkdirSync(k8sDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(k8sDir, "v1.star"),
+      [
+        "# apps/v1 k8s schemas",
+        "",
+        "def StatefulSet(spec):",
+        "    pass",
+        "",
+        "def Deployment(spec):",
+        "    pass",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("oci://ghcr.io/org/schemas-k8s:v1.35/apps/v1.star", k8s="*")\n' +
+      "d = k8s.Deployment(spec=x)\n";
+    const doc = createMockDocument(text);
+
+    // Cursor on `Deployment` in `k8s.Deployment(...)` — must resolve to the
+    // v1.star file at the def line (5, 0-indexed).
+    const offset = text.indexOf("Deployment(spec=x)") + 2;
+    const hit = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(hit).toBeDefined();
+    expect(hit.uri.fsPath).toBe(path.join(k8sDir, "v1.star"));
+    expect(hit.range.start.line).toBe(5);
+  });
+
+  it("namespace prefix scopes resolution to the load() that declared the namespace", () => {
+    // `foo.Deployment` references an undeclared namespace `foo` — even if
+    // some other load happens to export `Deployment`, resolution must not
+    // leak via the star-import loop.
+    const k8sDir = path.join(cacheDir, "schemas-k8s", "v1.31", "apps");
+    const otherDir = path.join(cacheDir, "schemas-other", "v1");
+    fs.mkdirSync(k8sDir, { recursive: true });
+    fs.mkdirSync(otherDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(k8sDir, "v1.star"),
+      "def Deployment(spec):\n    pass\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(otherDir, "mod.star"),
+      "def Deployment(spec):\n    pass\n",
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("schemas-k8s:v1.31/apps/v1.star", k8s="*")\n' +
+      'load("schemas-other:v1/mod.star", baz="*")\n' +
+      "u = foo.Deployment(x=1)\n";
+    const doc = createMockDocument(text);
+    const offset = text.indexOf("Deployment(x=1)") + 2;
+    const hit = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    );
+    expect(hit).toBeUndefined();
+  });
+
   it("returns undefined when cache file has been deleted after indexing", () => {
     const idx = buildIndex();
     const provider = new LoadDefinitionProvider(idx);

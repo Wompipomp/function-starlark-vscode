@@ -16,10 +16,8 @@
  * v1 scope / non-goals:
  *   - Does NOT navigate from the path-string argument (the first load() arg)
  *     to the .star file itself. Intentional — follow-up if users request it.
- *   - Does NOT handle namespace member access (e.g. `storage.Account` where
- *     `storage="*"` was imported). Direct imports, star imports, and usage
- *     identifiers of either cover the reported user need; namespace member
- *     resolution is a separate task.
+ *   - Star imports inside load() (cursor on the `"*"`) jump to the target
+ *     file at line 0; per-symbol line resolution still uses the file scan.
  */
 
 import * as fs from "fs";
@@ -315,7 +313,36 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
     );
     if (!word) return undefined;
 
+    // For namespace-member accesses like `k8s.Deployment`, detect the
+    // preceding `<ns>.` so we can restrict resolution to the load() that
+    // declared that namespace — independent of what the word itself is.
+    const lineText = text.split("\n")[position.line] ?? "";
+    const beforeWord = lineText.substring(
+      0,
+      document.offsetAt(wordRange.start) - document.offsetAt(
+        new vscode.Position(position.line, 0),
+      ),
+    );
+    const nsMatch = beforeWord.match(/(\w+)\.$/);
+    const namespacePrefix = nsMatch ? nsMatch[1] : undefined;
+
     for (const stmt of parseLoadStatements(text)) {
+      // Namespace member access: `<ns>.<word>` where <ns> was imported via
+      // `ns="*"`. Resolve via the namespace's own load() so the correct
+      // version wins when multiple tags are cached.
+      if (namespacePrefix) {
+        const ns = stmt.namespaces.find(
+          (n) => n.name === namespacePrefix && n.value === "*",
+        );
+        if (ns) {
+          const loc = this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+          if (loc) return loc;
+          // Namespace matched but the file doesn't bind `word` at top level —
+          // don't fall through to other loads, this prefix clearly scopes to
+          // this statement only.
+          continue;
+        }
+      }
       // Directly named in load() — cheapest check.
       if (stmt.symbols.includes(word)) {
         const loc = this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);

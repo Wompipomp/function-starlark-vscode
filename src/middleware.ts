@@ -351,8 +351,23 @@ export function createScopingMiddleware(
       if (hover && imports.allowed.has(word)) return hover;
       if (hover && imports.namespaces.has(word)) return hover;
 
-      // Detect "module.word" pattern for builtin module children
+      // Detect "module.word" pattern.
       const moduleMatch = beforeWord.match(/(\w+)\.$/);
+
+      // User-defined namespace import (e.g. `k8s="*"`): pass the LSP hover
+      // through when the word is a member of that namespace. Without this,
+      // the fall-through `return hover ? undefined : hover` at the bottom
+      // would silently drop every `k8s.Deployment`-style hover even though
+      // starlark-lsp has the right stub.
+      if (
+        hover &&
+        moduleMatch &&
+        imports.namespaces.get(moduleMatch[1])?.has(word)
+      ) {
+        return hover;
+      }
+
+      // Detect "module.word" pattern for builtin module children
       if (moduleMatch && BUILTIN_MODULE_NAMES.has(moduleMatch[1])) {
         // LSP returned hover — pass it through
         if (hover) return hover;

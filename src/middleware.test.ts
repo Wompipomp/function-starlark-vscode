@@ -573,6 +573,73 @@ describe("createScopingMiddleware", () => {
       expect(result).toBeUndefined();
     });
 
+    it("passes LSP hover through for user-namespace members (k8s.Deployment when k8s=\"*\")", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.35",
+          tarEntryPath: "apps/v1.star",
+          symbols: [],
+          namespaces: [{ name: "k8s", value: "*" }],
+          fullPath: "schemas-k8s:v1.35/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.35/apps/v1.star": new Set(["Deployment", "StatefulSet"]),
+      });
+      const text =
+        'load("schemas-k8s:v1.35/apps/v1.star", k8s="*")\nd = k8s.Deployment(spec=x)\n';
+      const doc = createMockDocument("test://file.star", text, "Deployment");
+
+      const hoverResult = { contents: "Deployment docs from stub" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      // position within the Deployment identifier on the usage line
+      const line = text.split("\n").findIndex((l) => l.includes("k8s.Deployment"));
+      const char = text.split("\n")[line].indexOf("Deployment") + 2;
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(line, char) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toEqual(hoverResult);
+    });
+
+    it("still suppresses user-namespace hover when the prefix is unknown (foo.Deployment with k8s=\"*\")", async () => {
+      mockedParseLoadStatements.mockReturnValue([
+        {
+          ociRef: "schemas-k8s:v1.35",
+          tarEntryPath: "apps/v1.star",
+          symbols: [],
+          namespaces: [{ name: "k8s", value: "*" }],
+          fullPath: "schemas-k8s:v1.35/apps/v1.star",
+        },
+      ]);
+      const index = createMockSchemaIndex({
+        "schemas-k8s/v1.35/apps/v1.star": new Set(["Deployment"]),
+      });
+      const text =
+        'load("schemas-k8s:v1.35/apps/v1.star", k8s="*")\nd = foo.Deployment(spec=x)\n';
+      const doc = createMockDocument("test://other.star", text, "Deployment");
+
+      const hoverResult = { contents: "some lsp hover" };
+      const next = vi.fn().mockResolvedValue(hoverResult);
+      const middleware = createScopingMiddleware(index, () => undefined);
+
+      const line = text.split("\n").findIndex((l) => l.includes("foo.Deployment"));
+      const char = text.split("\n")[line].indexOf("Deployment") + 2;
+      const result = await middleware.provideHover(
+        doc as never,
+        new Position(line, char) as never,
+        {} as never,
+        next,
+      );
+
+      expect(result).toBeUndefined();
+    });
+
     it("constructs hover from stub docs when LSP returns null for module child (e.g., crypto.sha256)", async () => {
       mockedParseLoadStatements.mockReturnValue([]);
       const index = createMockSchemaIndex({});
