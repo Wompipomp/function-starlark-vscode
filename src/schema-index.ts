@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { ociRefToCacheKey } from "./load-parser";
 import { parseSchemas, type ParsedSchema } from "./schema-stubs";
 
 /**
@@ -217,6 +218,26 @@ export class SchemaIndex {
     const rel = this.reverseIndex.get(symbol);
     if (!rel) return undefined;
     const abs = path.join(this.cacheDir, rel);
+    return fs.existsSync(abs) ? abs : undefined;
+  }
+
+  /**
+   * Resolve a specific load() target to an absolute path on disk.
+   *
+   * Uses the OCI ref + tar-entry path from the load statement directly, so
+   * multiple cached versions of the same artifact (e.g. stdlib:v1.1.1 and
+   * stdlib:v1.6.3) resolve to their own files instead of colliding in the
+   * symbol-keyed reverse index.
+   *
+   * Returns undefined if the cache has never been built or the resolved file
+   * no longer exists on disk.
+   */
+  getAbsolutePathForLoad(
+    ociRef: string,
+    tarEntryPath: string,
+  ): string | undefined {
+    if (!this.cacheDir) return undefined;
+    const abs = path.join(this.cacheDir, ociRefToCacheKey(ociRef), tarEntryPath);
     return fs.existsSync(abs) ? abs : undefined;
   }
 

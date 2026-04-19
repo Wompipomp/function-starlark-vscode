@@ -276,22 +276,25 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
     const text = document.getText();
     const offset = document.offsetAt(position);
 
-    // 1. If the cursor is inside a load() call argument, resolve directly.
+    // 1. If the cursor is inside a load() call argument, resolve directly
+    //    against that statement's ociRef + tarEntryPath (not the symbol-keyed
+    //    reverse index, which collides when multiple versions are cached).
     const hit = findLoadArgumentAtPosition(text, offset);
     if (hit) {
       if (hit.kind === "symbol") {
         if (hit.value === "*") {
-          // v1 does not resolve "*" — no reliable per-file navigation without
-          // exposing a cache-root accessor on SchemaIndex. Skip.
+          // v1 does not resolve "*" — navigation target is ambiguous.
           return undefined;
         }
-        return this.resolveBySymbol(hit.value);
+        return this.resolveInLoad(hit.ociRef, hit.tarEntryPath, hit.value);
       }
       // Namespace hits are out of scope for v1 (see file header).
       return undefined;
     }
 
-    // 2. Otherwise, try the identifier under the cursor.
+    // 2. Otherwise, try the identifier under the cursor — but only if it was
+    //    imported by a load() in THIS file. Using the file's own load() for
+    //    resolution keeps multi-version caches correctly scoped.
     const wordRange = document.getWordRangeAtPosition(position);
     if (!wordRange) return undefined;
     const word = text.substring(
@@ -299,15 +302,30 @@ export class LoadDefinitionProvider implements vscode.DefinitionProvider {
       document.offsetAt(wordRange.end),
     );
     if (!word) return undefined;
-    return this.resolveBySymbol(word);
+
+    for (const stmt of parseLoadStatements(text)) {
+      if (stmt.symbols.includes(word)) {
+        return this.resolveInLoad(stmt.ociRef, stmt.tarEntryPath, word);
+      }
+    }
+    return undefined;
   }
 
   /**
-   * Given a symbol name, return a Location in its cached .star file, or
-   * undefined if the symbol is unknown / the file is missing / unreadable.
+   * Resolve a symbol to a Location inside the .star file identified by the
+   * given OCI ref + tar-entry path, or undefined if the file is missing /
+   * unreadable. Scopes resolution per-load() so distinct cached versions of
+   * the same artifact do not collide.
    */
-  private resolveBySymbol(symbol: string): vscode.Location | undefined {
-    const absPath = this.schemaIndex.getAbsolutePathForSymbol(symbol);
+  private resolveInLoad(
+    ociRef: string,
+    tarEntryPath: string,
+    symbol: string,
+  ): vscode.Location | undefined {
+    const absPath = this.schemaIndex.getAbsolutePathForLoad(
+      ociRef,
+      tarEntryPath,
+    );
     if (!absPath) return undefined;
     let content: string;
     try {

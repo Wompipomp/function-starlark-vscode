@@ -290,6 +290,72 @@ describe("LoadDefinitionProvider", () => {
     expect(result).toBeUndefined();
   });
 
+  it("resolves to the version named in the load() statement when multiple versions are cached", () => {
+    // Two cached versions of the same artifact; each file exports the same
+    // symbol on a different line so we can tell which version was resolved.
+    const v1Dir = path.join(cacheDir, "stdlib", "v1.1.1");
+    const v2Dir = path.join(cacheDir, "stdlib", "v1.6.3");
+    fs.mkdirSync(v1Dir, { recursive: true });
+    fs.mkdirSync(v2Dir, { recursive: true });
+    // In v1.1.1, `shared` is defined on line 0.
+    fs.writeFileSync(
+      path.join(v1Dir, "mod.star"),
+      "def shared(x):\n    pass\n",
+      "utf-8",
+    );
+    // In v1.6.3, `shared` is defined on line 3 (preceded by padding).
+    fs.writeFileSync(
+      path.join(v2Dir, "mod.star"),
+      ["# v1.6.3", "", "", "def shared(x):", "    pass", ""].join("\n"),
+      "utf-8",
+    );
+
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    const text =
+      'load("stdlib:v1.6.3/mod.star", "shared")\nshared(x=1)\n';
+    const doc = createMockDocument(text);
+
+    // Cursor on the "shared" string inside load() — must resolve to v1.6.3.
+    const sharedInLoad = text.indexOf('"shared"') + 2;
+    const loadHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(sharedInLoad),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(loadHit.uri.fsPath).toBe(path.join(v2Dir, "mod.star"));
+    expect(loadHit.range.start.line).toBe(3);
+
+    // Cursor on the usage — must also resolve to v1.6.3 (not whichever
+    // version happens to win the symbol-keyed reverse index).
+    const usage = text.indexOf("shared(x=1)") + 2;
+    const usageHit = provider.provideDefinition(
+      doc,
+      doc.positionAt(usage),
+      {} as vscode.CancellationToken,
+    ) as vscode.Location;
+    expect(usageHit.uri.fsPath).toBe(path.join(v2Dir, "mod.star"));
+    expect(usageHit.range.start.line).toBe(3);
+  });
+
+  it("returns undefined for identifier under cursor when not imported by any load() in this file", () => {
+    const idx = buildIndex();
+    const provider = new LoadDefinitionProvider(idx);
+    // File imports Account only; usage of Deployment is NOT imported here.
+    // Provider must decline (upstream LSP handles local defs, and picking
+    // the symbol from the index unconditionally would leak cross-file).
+    const text =
+      'load("schemas-k8s:v1.31/apps/v1.star", "Account")\nDeployment(x=1)\n';
+    const doc = createMockDocument(text);
+    const offset = text.indexOf("Deployment(") + 2;
+    const result = provider.provideDefinition(
+      doc,
+      doc.positionAt(offset),
+      {} as vscode.CancellationToken,
+    );
+    expect(result).toBeUndefined();
+  });
+
   it("returns undefined when cache file has been deleted after indexing", () => {
     const idx = buildIndex();
     const provider = new LoadDefinitionProvider(idx);
