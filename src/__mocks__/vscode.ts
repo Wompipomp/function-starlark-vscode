@@ -155,6 +155,7 @@ export const languages = {
     dispose: vi.fn(),
   })),
   registerCodeActionsProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  registerDefinitionProvider: vi.fn(() => ({ dispose: vi.fn() })),
 };
 
 export const env = {

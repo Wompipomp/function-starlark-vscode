@@ -21,6 +21,7 @@ import { createScopingMiddleware, updateDocumentImports, clearDocumentImports, c
 import { MissingImportDiagnosticProvider } from "./diagnostics";
 import { TypeWarningProvider } from "./type-warning-provider";
 import { MissingFieldQuickFixProvider } from "./missing-field-fix";
+import { LoadDefinitionProvider } from "./load-definition-provider";
 import { generateStubFile, generateNamespaceStubs } from "./schema-stubs";
 import { isLspNoiseDiagnostic } from "./lsp-diagnostic-filter";
 
@@ -448,6 +449,16 @@ function initSchemaSubsystem(context: vscode.ExtensionContext): void {
     { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
   );
   schemaDisposables.push(missingFieldFixReg);
+
+  // Go-to-definition for load()-imported symbols. Additive to the upstream
+  // LSP's own definition provider — returns undefined for anything it doesn't
+  // own, preserving local go-to-def behavior.
+  const definitionProvider = new LoadDefinitionProvider(currentSchemaIndex);
+  const definitionReg = vscode.languages.registerDefinitionProvider(
+    { scheme: "file", language: "starlark" },
+    definitionProvider,
+  );
+  schemaDisposables.push(definitionReg);
 
   // Debounced onDidChangeTextDocument handler for real-time type checking
   const typeCheckChangeHandler = vscode.workspace.onDidChangeTextDocument((e) => {

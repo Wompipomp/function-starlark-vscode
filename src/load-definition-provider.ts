@@ -27,7 +27,7 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
 
-import { ociRefToCacheKey, parseLoadStatements } from "./load-parser";
+import { parseLoadStatements } from "./load-parser";
 import type { SchemaIndex } from "./schema-index";
 
 /**
